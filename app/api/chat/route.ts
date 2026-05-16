@@ -13,7 +13,7 @@ const openai = new AzureOpenAI({
   apiKey: process.env.AZURE_OPENAI_API_KEY,
   endpoint: process.env.AZURE_OPENAI_ENDPOINT,
   deployment: process.env.AZURE_OPENAI_DEPLOYMENT, // e.g., "gpt-4o-mini"
-  apiVersion: '2025-10-01-preview',
+  apiVersion: '2024-11-20',
 });
 
 export async function POST(req: Request) {
