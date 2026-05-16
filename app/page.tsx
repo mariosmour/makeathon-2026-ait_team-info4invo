@@ -22,6 +22,45 @@ export default function Home() {
     }
   };
 
+  // ... existing state ...
+
+  // Helper to convert file to base64
+  const getBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  const saveToDatabase = async () => {
+    if (!currentFile) return;
+    setIsLoading(true);
+    setMessages((prev) => [...prev, { role: 'ai', text: `Saving ${currentFile.name} to the Knowledge Base...` }]);
+
+    try {
+      const base64Image = await getBase64(currentFile);
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64Image, filename: currentFile.name }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setMessages((prev) => [...prev, { role: 'ai', text: `✅ ${currentFile.name} has been successfully read and saved to the database! You can now search for it.` }]);
+        setCurrentFile(null); // Clear the file after saving
+      } else {
+        throw new Error(data.error);
+      }
+    } catch (error) {
+      setMessages((prev) => [...prev, { role: 'ai', text: "❌ Failed to save document to database." }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || !currentFile) return;
@@ -48,7 +87,7 @@ export default function Home() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: userMsg, image: base64Image }),
+        body: JSON.stringify({ question: userMsg }),
       });
 
       const data = await response.json();
@@ -146,6 +185,7 @@ export default function Home() {
               onChange={handleFileUpload}
             />
             <button 
+              type="button"
               onClick={() => fileInputRef.current?.click()}
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border-[1.5px] border-[#d0e8da] bg-white text-[#5a7a6a] text-[0.75rem] font-medium hover:border-[#22a060] hover:text-[#1a7a4a] transition-colors"
             >
@@ -154,10 +194,22 @@ export default function Home() {
             </button>
 
             {currentFile && (
-              <div className="inline-flex items-center gap-1.5 bg-[#d6f5e6] border border-[#a8dfc0] rounded-full px-3 py-1 text-[0.73rem] text-[#1a7a4a] font-medium max-w-[200px] truncate">
-                <svg width="11" height="11" fill="none" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="#1a7a4a" strokeWidth="2" strokeLinejoin="round"/><polyline points="14 2 14 8 20 8" stroke="#1a7a4a" strokeWidth="2"/></svg>
-                {currentFile.name}
-              </div>
+              <>
+                <div className="inline-flex items-center gap-1.5 bg-[#d6f5e6] border border-[#a8dfc0] rounded-full px-3 py-1 text-[0.73rem] text-[#1a7a4a] font-medium max-w-[200px] truncate">
+                  <svg width="11" height="11" fill="none" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="#1a7a4a" strokeWidth="2" strokeLinejoin="round"/><polyline points="14 2 14 8 20 8" stroke="#1a7a4a" strokeWidth="2"/></svg>
+                  {currentFile.name}
+                </div>
+                
+                {/* NEW SAVE BUTTON */}
+                <button 
+                  type="button"
+                  onClick={saveToDatabase}
+                  disabled={isLoading}
+                  className="inline-flex items-center gap-1 px-3 py-1 bg-[#1a7a4a] text-white rounded-full text-[0.75rem] font-medium hover:bg-[#22a060] transition-colors disabled:opacity-50"
+                >
+                  Save to Database
+                </button>
+              </>
             )}
           </div>
 
