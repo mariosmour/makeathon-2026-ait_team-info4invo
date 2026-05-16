@@ -22,9 +22,6 @@ export default function Home() {
     }
   };
 
-  // ... existing state ...
-
-  // Helper to convert file to base64
   const getBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -63,7 +60,8 @@ export default function Home() {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || !currentFile) return;
+    // CHANGED: You no longer need a file attached to ask a question!
+    if (!input.trim()) return;
 
     const userMsg = input;
     setMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
@@ -71,19 +69,7 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      // Convert the attached image file to a Base64 string
-      const getBase64 = (file: File): Promise<string> => {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.readAsDataURL(file);
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = error => reject(error);
-        });
-      };
-
-      const base64Image = await getBase64(currentFile);
-
-      // Send both the question and the image to the backend
+      // CHANGED: We now only send the question to the database search backend
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,6 +89,9 @@ export default function Home() {
     }
   };
 
+  // LOGIC FIX: Show welcome screen ONLY if there are no messages AND no file is currently attached
+  const showWelcomeScreen = messages.length === 0 && !currentFile;
+
   return (
     <main className="flex flex-col min-h-screen bg-[#f4f8f6] text-[#0f1f17] font-sans">
       
@@ -116,14 +105,13 @@ export default function Home() {
           </svg>
         </div>
         <span className="text-[0.98rem] font-semibold tracking-tight">info4invo</span>
-        <span className="text-[0.68rem] font-medium bg-[#d6f5e6] text-[#1a7a4a] px-2 py-0.5 rounded-full">AI</span>
-        <span className="ml-auto text-[0.73rem] text-[#5a7a6a]">Financial Document Assistant</span>
+        <span className="text-[0.68rem] font-medium bg-[#d6f5e6] text-[#1a7a4a] px-2 py-0.5 rounded-full">AI Knowledge Base</span>
       </div>
 
       {/* ── Center Column ── */}
       <div className="flex-1 w-full max-w-[700px] mx-auto flex flex-col pt-10 px-5 overflow-hidden">
         
-        {!currentFile ? (
+        {showWelcomeScreen ? (
           /* ── Welcome Screen ── */
           <div className="text-center mt-12 mb-8">
             <div className="w-[50px] h-[50px] bg-[#d6f5e6] rounded-xl flex items-center justify-center mx-auto mb-4">
@@ -134,24 +122,10 @@ export default function Home() {
                 <line x1="8" y1="17" x2="13" y2="17" stroke="#1a7a4a" strokeWidth="1.8" strokeLinecap="round"/>
               </svg>
             </div>
-            <h1 className="text-[1.4rem] font-semibold text-[#0f1f17] tracking-tight mb-2">Ask your financial documents</h1>
+            <h1 className="text-[1.4rem] font-semibold text-[#0f1f17] tracking-tight mb-2">Build your Knowledge Base</h1>
             <p className="text-[0.86rem] text-[#5a7a6a] max-w-[370px] mx-auto mb-7 leading-relaxed">
-              Upload an invoice, receipt, or bank statement and ask anything — get verified answers with visual proof of the source.
+              Upload an invoice, save it to the database, and then ask questions across all your saved documents.
             </p>
-            
-            <div className="flex flex-wrap gap-3 justify-center">
-              {[
-                { title: "Accurate Answers", desc: "Grounded responses cited to the source" },
-                { title: "Visual Proof", desc: "See exactly where the answer comes from" },
-                { title: "Zero Hallucinations", desc: "If it's not in the doc, we say so" }
-              ].map((feat, i) => (
-                <div key={i} className="bg-white border border-[#d0e8da] rounded-xl p-3 w-[162px] text-left">
-                  <div className="w-[7px] h-[7px] bg-[#1a7a4a] rounded-full mb-2"></div>
-                  <div className="text-[0.79rem] font-semibold text-[#0f1f17] mb-1">{feat.title}</div>
-                  <div className="text-[0.72rem] text-[#5a7a6a] leading-snug">{feat.desc}</div>
-                </div>
-              ))}
-            </div>
           </div>
         ) : (
           /* ── Chat Messages ── */
@@ -164,7 +138,7 @@ export default function Home() {
               </div>
             ))}
             {isLoading && (
-              <div className="text-[#5a7a6a] text-sm animate-pulse ml-2">info4invo is analyzing...</div>
+              <div className="text-[#5a7a6a] text-sm animate-pulse ml-2">info4invo is thinking...</div>
             )}
             <div ref={chatEndRef} />
           </div>
@@ -200,7 +174,7 @@ export default function Home() {
                   {currentFile.name}
                 </div>
                 
-                {/* NEW SAVE BUTTON */}
+                {/* SAVE BUTTON */}
                 <button 
                   type="button"
                   onClick={saveToDatabase}
@@ -219,13 +193,13 @@ export default function Home() {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={currentFile ? "Ask anything about your document…" : "Attach a document to start chatting…"}
-              disabled={!currentFile || isLoading}
+              placeholder="Search your saved documents..."
+              disabled={isLoading}
               className="w-full bg-white border-[1.5px] border-[#d0e8da] rounded-xl pl-4 pr-12 py-3 text-[#0f1f17] text-[0.89rem] shadow-sm focus:outline-none focus:border-[#22a060] focus:ring-2 focus:ring-[#22a060]/10 disabled:bg-gray-100 disabled:cursor-not-allowed"
             />
             <button 
               type="submit"
-              disabled={!currentFile || isLoading}
+              disabled={isLoading || !input.trim()}
               className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-[#1a7a4a] rounded-lg flex items-center justify-center hover:bg-[#22a060] transition-colors disabled:opacity-50"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
