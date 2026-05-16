@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { AzureOpenAI } from 'openai';
+import { OpenAI } from 'openai';
 
 // 1. Initialize Supabase (Using Service Role Key to bypass RLS)
 const supabase = createClient(
@@ -9,11 +9,12 @@ const supabase = createClient(
 );
 
 // 2. Initialize Azure OpenAI Client for Chat
-const openai = new AzureOpenAI({
+const openai = new OpenAI({
   apiKey: process.env.AZURE_OPENAI_API_KEY,
-  endpoint: process.env.AZURE_OPENAI_ENDPOINT,
-  deployment: process.env.AZURE_OPENAI_DEPLOYMENT, // e.g., "gpt-4o-mini"
-  apiVersion: '2024-10-21',
+  // This forces it through the v1 compatibility layer
+  baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT}`,
+  defaultQuery: { 'api-version': '2024-10-21' },
+  defaultHeaders: { 'api-key': process.env.AZURE_OPENAI_API_KEY }
 });
 
 export async function POST(req: Request) {
