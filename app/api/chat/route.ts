@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     // 2. Search Supabase for matching documents
     const { data: documents, error } = await supabase.rpc('match_documents', {
       query_embedding: embeddingResponse.data[0].embedding,
-      match_threshold: 0.70, // Slightly lower threshold to catch more variations
+      match_threshold: 0.10, // Slightly lower threshold to catch more variations
       match_count: 5
     });
 
