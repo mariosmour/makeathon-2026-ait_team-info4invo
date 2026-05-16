@@ -1,30 +1,46 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import OpenAI from 'openai';
+import { AzureOpenAI } from 'openai';
 
-// 1. Initialize Clients (Add these to your .env.local file)
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }); // Or configure for Azure OpenAI
+// 1. Initialize Supabase (Using Service Role Key to bypass RLS)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+// 2. Initialize Azure OpenAI Client for Chat
+const openai = new AzureOpenAI({
+  apiKey: process.env.AZURE_OPENAI_API_KEY,
+  endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+  deployment: process.env.AZURE_OPENAI_DEPLOYMENT, // e.g., "gpt-4o-mini"
+  apiVersion: '2024-02-01',
+});
 
 export async function POST(req: Request) {
   try {
     const { question } = await req.json();
 
-    // 2. Create an embedding of the user's question
+    // 3. Create an embedding of the user's question
+    // We use your Azure embedding deployment name here
     const embeddingResponse = await openai.embeddings.create({
-      model: 'text-embedding-3-small',
+      model: process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT || 'text-embedding-ada-002', 
       input: question,
     });
     const queryEmbedding = embeddingResponse.data[0].embedding;
 
-    // 3. Search Supabase (The Retrieve Step)
+    // 4. Search Supabase (The Retrieve Step)
     const { data: documents, error } = await supabase.rpc('match_documents', {
       query_embedding: queryEmbedding,
       match_threshold: 0.75, // Only return high-confidence matches
       match_count: 3,
     });
 
-    if (error || !documents || documents.length === 0) {
+    if (error) {
+      console.error("Supabase search error:", error);
+      return NextResponse.json({ answer: "Σφάλμα κατά την αναζήτηση στη βάση δεδομένων." });
+    }
+
+    if (!documents || documents.length === 0) {
       return NextResponse.json({ answer: "Δεν βρέθηκαν σχετικά έγγραφα στη βάση δεδομένων." });
     }
 
@@ -32,9 +48,9 @@ export async function POST(req: Request) {
     const contextText = documents.map((doc: any) => doc.content).join('\n---\n');
     const sourceFile = documents[0].metadata?.source || "Unknown";
 
-    // 4. Ask the AI with strict guardrails
+    // 5. Ask the AI with strict guardrails
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o-mini', 
       response_format: { type: "json_object" },
       temperature: 0.0,
       messages: [
@@ -49,9 +65,10 @@ export async function POST(req: Request) {
       ]
     });
 
-    const aiOutput = JSON.parse(completion.choices[0].message.content || '{}');
+    const aiContent = completion.choices[0].message.content || '{}';
+    const aiOutput = JSON.parse(aiContent);
 
-    // 5. Verification & Bank Check
+    // 6. Verification & Bank Check
     if (aiOutput.answer === "Δεν γνωρίζω" || !contextText.includes(aiOutput.exact_quote)) {
         return NextResponse.json({ answer: "❌ Blocked: Δεν μπορώ να επιβεβαιώσω την απάντηση στο έγγραφο." });
     }
@@ -76,6 +93,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ answer: finalResponse, data: aiOutput });
 
   } catch (error: any) {
+    console.error("API Route Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
