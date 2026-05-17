@@ -7,7 +7,7 @@ const getDaysInMonth = (year: number, month: number) => {
   const date = new Date(year, month, 1);
   const days = [];
   let firstDay = date.getDay() - 1;
-  if (firstDay === -1) firstDay = 6; 
+  if (firstDay === -1) firstDay = 6; // Δευτέρα ως πρώτη μέρα
   
   for (let i = 0; i < firstDay; i++) days.push(null);
   while (date.getMonth() === month) {
@@ -22,7 +22,6 @@ const getDateKey = (date: Date) => {
 };
 
 export default function Home() {
-  // Προστέθηκε το reconciliation state στα μηνύματα
   const [messages, setMessages] = useState<{ 
     role: 'user' | 'ai', 
     text: string, 
@@ -44,8 +43,16 @@ export default function Home() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [uploadedFilesByDate, setUploadedFilesByDate] = useState<{ [key: string]: { name: string, url?: string }[] }>({});
   
+  // --- ΝΕΑ STATES ΓΙΑ BONUS ΣΤΟΙΧΕΙΑ ---
+  const [history, setHistory] = useState<string[]>([
+    "Πληρώθηκε το τιμολόγιο UniDOC;",
+    "Ποιο είναι το ΦΠΑ της Vodafone;",
+    "Σύνολο πληρωμής CAD"
+  ]);
+  const [notes, setNotes] = useState<string>('');
+
   // Calendar State
-  const [currentMonth, setCurrentMonth] = useState(8); 
+  const [currentMonth, setCurrentMonth] = useState(8); // Σεπτέμβριος
   const [currentYear, setCurrentYear] = useState(2026);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   
@@ -60,6 +67,7 @@ export default function Home() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // --- API & Upload Logic ---
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const filesArray = Array.from(e.target.files);
@@ -129,6 +137,11 @@ export default function Home() {
     setInput('');
     setIsLoading(true);
 
+    // Προσθήκη της ερώτησης στο προσωρινό ιστορικό αν δεν υπάρχει ήδη
+    if (!history.includes(userMsg)) {
+      setHistory(prev => [userMsg, ...prev.slice(0, 4)]);
+    }
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -143,7 +156,7 @@ export default function Home() {
         image_url: data.image_url,
         zoom_x: data.zoom_x,
         zoom_y: data.zoom_y,
-        reconciliation: data.reconciliation // Αποθήκευση της διασταύρωσης τράπεζας
+        reconciliation: data.reconciliation
       }]);
     } catch (error) {
       setMessages((prev) => [...prev, { role: 'ai', text: "Σφάλμα σύνδεσης." }]);
@@ -166,7 +179,7 @@ export default function Home() {
           </button>
         </div>
 
-        <div className="p-4 flex-1 overflow-y-auto space-y-4">
+        <div className="p-4 flex-1 overflow-y-auto space-y-4 pb-8">
           <button onClick={() => { setMessages([]); }} className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-[#d0e8da] rounded-xl hover:border-[#1a7a4a] hover:bg-[#f4fbf7] transition-all text-sm font-medium text-gray-700 shadow-sm">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"></path></svg>
             Νέα Συνομιλία
@@ -177,6 +190,7 @@ export default function Home() {
             <input type="text" placeholder="Αναζήτηση συνομιλιών..." className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#1a7a4a]" />
           </div>
 
+          {/* Calendar Widget */}
           <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -241,6 +255,40 @@ export default function Home() {
               )}
             </div>
           )}
+
+          {/* --- ΝΕΟ WIDGET 1: ΠΡΟΣΩΡΙΝΟ ΙΣΤΟΡΙΚΟ --- */}
+          <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
+            <div className="text-[0.7rem] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              Πρόσφατες Αναζητήσεις
+            </div>
+            <div className="space-y-1 max-h-[110px] overflow-y-auto">
+              {history.map((item, idx) => (
+                <button 
+                  key={idx} 
+                  type="button"
+                  onClick={() => setInput(item)} 
+                  className="w-full text-left text-xs text-gray-600 hover:text-[#1a7a4a] hover:bg-[#f4fbf7] rounded-lg p-2 truncate block transition-colors border border-transparent hover:border-[#d0e8da]"
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* --- ΝΕΟ WIDGET 2: ΣΗΜΕΙΩΣΕΙΣ (SCRATCHPAD) --- */}
+          <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
+            <div className="text-[0.7rem] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+              Σημειώσεις Παρουσίασης
+            </div>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Κρατήστε γρήγορες σημειώσεις, ποσά ή σχόλια των κριτών εδώ..."
+              className="w-full h-24 p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-[#1a7a4a] resize-none text-gray-700 placeholder-gray-400 leading-relaxed"
+            />
+          </div>
         </div>
       </div>
 
