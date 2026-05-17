@@ -9,13 +9,15 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
   const [isScanning, setIsScanning] = useState(true);
   const imageRef = useRef<HTMLImageElement>(null);
 
-  // We wait for the HTML image to fully load on the screen, then scan it directly!
+  // THE CACHE BUSTER: We add a random timestamp to the end of the URL.
+  // This forces the browser to fetch a fresh, CORS-approved copy from Supabase!
+  const corsBypassUrl = `${imageUrl}?t=${Date.now()}`;
+
   const scanImage = async () => {
     if (!imageRef.current) return;
     setIsScanning(true);
     
     try {
-      // FIX: Pass the physical image element on the screen instead of the URL!
       const { data }: { data: any } = await Tesseract.recognize(imageRef.current, 'ell+eng');
       const wordsArray = data?.words || []; 
       
@@ -31,7 +33,6 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
         setBox(foundWord.bbox);
       } else {
         console.log(`❌ Couldn't find: "${highlightText}" (Numbers only: ${targetNumbers})`);
-        console.log("Here is what Tesseract actually read:", wordsArray.map((w:any) => w.text).join(' '));
       }
     } catch (error) {
       console.error("🚨 Tesseract Error:", error);
@@ -47,10 +48,10 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
         </div>
       )}
       
-      {/* TRIGGER: When the image finishes appearing on screen, run the scan! */}
+      {/* Notice we are using corsBypassUrl here now! */}
       <img 
         ref={imageRef} 
-        src={imageUrl} 
+        src={corsBypassUrl} 
         alt="Source Document" 
         className="w-full h-auto block" 
         crossOrigin="anonymous" 
