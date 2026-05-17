@@ -303,11 +303,14 @@ export default function Home() {
                       {msg.role === 'ai' && msg.image_url && msg.zoom_x !== undefined && msg.zoom_y !== undefined && (
                         <div className="flex flex-col items-center shrink-0">
                           <div 
-                            className="w-24 h-24 rounded-xl border-2 border-[#1a7a4a]/20 shadow-md bg-white overflow-hidden"
+                            // 1. CHANGED SHAPE: Made it a wide rectangle (w-48) instead of a square
+                            className="w-48 h-20 rounded-xl border-2 border-[#1a7a4a]/20 shadow-md bg-white overflow-hidden"
                             style={{
                               backgroundImage: `url(${msg.image_url})`,
-                              backgroundSize: '500%', 
-                              backgroundPosition: `${msg.zoom_x}% ${msg.zoom_y}%`,
+                              // 2. ZOOMED OUT: Reduced to 250% so the whole row fits
+                              backgroundSize: '250%', 
+                              // 3. OPTIONAL NUDGE: We artificially push the camera slightly to the right just in case!
+                              backgroundPosition: `${Math.min((msg.zoom_x) + 15, 100)}% ${msg.zoom_y}%`,
                               backgroundRepeat: 'no-repeat'
                             }}
                           />
