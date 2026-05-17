@@ -46,21 +46,25 @@ export async function POST(req: Request) {
       messages: [
         { 
           role: 'system', 
-          content: `You are a precision visual targeting AI. Answer using the context. 
+          content: `You are a precision visual targeting AI. 
           CRITICAL: You MUST reply in pure JSON format exactly like this:
           {
-            "step_1_target": "What specific item is the user asking for? (e.g., 'Tax', 'Date', 'Total')",
-            "step_2_scan": "I am scanning the image specifically for the label identified in step 1.",
+            "step_1_document_map": {
+              "subtotal_vertical_position": "approx 75%",
+              "tax_vertical_position": "approx 82% (MUST be higher than Total)",
+              "total_vertical_position": "approx 90% (Lowest on page)"
+            },
+            "step_2_target_selection": "The user asked for Tax. I will use the Tax vertical position.",
             "answer": "Your detailed answer",
-            "top_percent": 45,
+            "top_percent": 82,
             "left_percent": 80
           }
           
           RULES:
-          1. DO NOT default to the "Total" unless the user explicitly asks for the total.
-          2. If the user asks for "Tax", you MUST find the vertical position of the word "Tax" (or "VAT"). 
-          3. Set the 'top_percent' to match the exact vertical height of the requested item.
-          4. top_percent is 0-100 (0 is top edge). left_percent is 0-100 (0 is left edge).` 
+          1. You MUST map out the vertical positions of Subtotal, Tax, and Total in step 1. 
+          2. top_percent is 0-100 (0 is the top edge, 100 is the bottom edge).
+          3. TAX IS ALWAYS ABOVE TOTAL. If the user asks for Tax, your top_percent MUST be a smaller number than where the Total is.
+          4. Set your final 'top_percent' to exactly match the requested item from your map.` 
         },
         { role: 'user', content: userMessageContent }
       ],
