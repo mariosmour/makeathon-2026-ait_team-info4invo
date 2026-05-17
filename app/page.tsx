@@ -6,33 +6,37 @@ import Tesseract from 'tesseract.js';
 // --- THE MAGIC HIGHLIGHT COMPONENT ---
 const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highlightText: string }) => {
   const [box, setBox] = useState<{ x0: number, y0: number, x1: number, y1: number } | null>(null);
-  const [isScanning, setIsScanning] = useState(true);
-  const [imageLoaded, setImageLoaded] = useState(false); // Make sure image has dimensions
+  const [isScanning, setIsScanning] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
     let isMounted = true;
-    let localImageUrl: string | null = null; // We need to store this to clean it up later
 
     const runScan = async () => {
+      if (!imageRef.current || !imageLoaded) return;
+      setIsScanning(true);
+
       try {
         await new Promise(res => setTimeout(res, 500));
         
         const bypassUrl = `${imageUrl}?t=${Date.now()}`;
         
-        console.log("Downloading image to memory...");
+        // 1. Fetch the image securely
         const response = await fetch(bypassUrl);
         if (!response.ok) throw new Error("Network blocked the image download!");
-        
         const imageBlob = await response.blob();
-        console.log(`Image downloaded! Size: ${imageBlob.size} bytes.`);
         
-        // THE FIX: Convert the raw Blob into a safe, local browser URL
-        localImageUrl = URL.createObjectURL(imageBlob);
-        console.log("Handing local URL to Tesseract...");
+        // 2. THE ULTIMATE BYPASS: Convert the file into a pure Base64 Text String
+        const base64Image = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(imageBlob);
+        });
         
-        // Give the local URL to Tesseract
-        const { data }: { data: any } = await Tesseract.recognize(localImageUrl, 'eng');
+        // 3. Give the pure string to Tesseract. It cannot fail to read this.
+        const { data }: { data: any } = await Tesseract.recognize(base64Image, 'eng');
         
         if (!isMounted) return;
 
@@ -56,35 +60,32 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
         console.error("🚨 Scan Error:", error);
       } finally {
         if (isMounted) setIsScanning(false);
-        // CRITICAL CLEANUP: Destroy the temporary URL so we don't leak memory
-        if (localImageUrl) URL.revokeObjectURL(localImageUrl);
       }
     };
 
     runScan();
 
     return () => { isMounted = false; };
-  }, [imageUrl, highlightText]);
+  }, [imageUrl, highlightText, imageLoaded]); // Wait for the image to load first!
 
   return (
     <div className="relative mt-3 border border-[#d0e8da] rounded-xl overflow-hidden bg-gray-50">
       {isScanning && (
         <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10 backdrop-blur-sm text-sm font-medium text-[#1a7a4a] animate-pulse">
-          Scanning document... (This takes a few seconds)
+          Scanning document pixels...
         </div>
       )}
       
-      {/* Simple, clean image tag. No more looping! */}
       <img 
         ref={imageRef} 
-        src={imageUrl} 
+        src={`${imageUrl}?t=${Date.now()}`} 
+        crossOrigin="anonymous"
         alt="Source Document" 
-        className="w-full h-auto block"
+        className="w-full h-auto block" 
         onLoad={() => setImageLoaded(true)} 
       />
       
-      {/* Only draw the box if the scan succeeded AND the image has loaded its dimensions */}
-      {(box && imageLoaded && imageRef.current) && (
+      {box && imageLoaded && imageRef.current && (
         <div 
           style={{
             position: 'absolute',
