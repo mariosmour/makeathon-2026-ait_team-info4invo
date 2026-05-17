@@ -12,40 +12,51 @@ export async function POST(req: Request) {
   try {
     const { image, filename } = await req.json();
 
-    // 1. Ask GPT-4o to extract all text from the image
+    // 1. Convert base64 back to a file buffer
+    const base64Data = image.split(',')[1];
+    const buffer = Buffer.from(base64Data, 'base64');
+    
+    // Create a unique filename so we don't overwrite files with the same name
+    const uniqueFilename = `${Date.now()}-${filename.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+
+    // 2. Upload to Supabase Storage Bucket
+    const { error: uploadError } = await supabase.storage
+      .from('documents')
+      .upload(uniqueFilename, buffer, { contentType: 'image/jpeg' }); // Assumes jpeg/png
+
+    if (uploadError) throw uploadError;
+
+    // 3. Get the Public URL of the uploaded image
+    const { data: { publicUrl } } = supabase.storage.from('documents').getPublicUrl(uniqueFilename);
+
+    // 4. Ask GPT-4o to extract all text
     const extraction = await openai.chat.completions.create({
       model: process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o',
       messages: [
-        { 
-          role: 'system', 
-          content: 'You are a data extraction bot. Extract ALL text, numbers, dates, amounts, and vendor names from this invoice/document. Output ONLY the raw text, no intro or formatting.' 
-        },
-        { 
-          role: 'user', 
-          content: [{ type: 'image_url', image_url: { url: image } }] 
-        }
+        { role: 'system', content: 'Extract ALL text, numbers, dates, amounts, and vendor names from this document. Output ONLY the raw text.' },
+        { role: 'user', content: [{ type: 'image_url', image_url: { url: image } }] }
       ],
       temperature: 0,
     });
-
     const extractedText = extraction.choices[0].message.content;
 
-    // 2. Convert the extracted text into vector math
+    // 5. Convert to Vector
     const embeddingResponse = await openai.embeddings.create({
       model: process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT || 'text-embedding-3-small',
       input: extractedText!,
     });
 
-    // 3. Save the text, embedding, and FILENAME to Supabase
-    const { error } = await supabase.from('documents').insert({
+    // 6. Save Text, Vector, AND the Image URL to the database
+    const { error: dbError } = await supabase.from('documents').insert({
       content: extractedText,
-      metadata: { source: filename }, // <-- This is where we save the filename!
+      // WE NOW SAVE THE IMAGE URL HERE!
+      metadata: { source: filename, image_url: publicUrl }, 
       embedding: embeddingResponse.data[0].embedding
     });
 
-    if (error) throw error;
+    if (dbError) throw dbError;
 
-    return NextResponse.json({ success: true, message: "Document saved to memory!" });
+    return NextResponse.json({ success: true, message: "Saved to Knowledge Base!" });
   } catch (error: any) {
     console.error("Upload Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });

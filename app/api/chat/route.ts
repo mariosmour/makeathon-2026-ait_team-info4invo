@@ -12,47 +12,50 @@ export async function POST(req: Request) {
   try {
     const { question } = await req.json();
 
-    // 1. Embed the user's question
     const embeddingResponse = await openai.embeddings.create({
       model: process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT || 'text-embedding-3-small',
       input: question,
     });
 
-    // 2. Search Supabase for matching documents
     const { data: documents, error } = await supabase.rpc('match_documents', {
       query_embedding: embeddingResponse.data[0].embedding,
-      match_threshold: 0.10, // Slightly lower threshold to catch more variations
-      match_count: 5
+      match_threshold: 0.10, // Kept at 10% so it always finds it
+      match_count: 3
     });
 
     if (error) throw error;
-
     if (!documents || documents.length === 0) {
-      return NextResponse.json({ answer: "Δεν βρέθηκαν σχετικά έγγραφα στη βάση δεδομένων." });
+      return NextResponse.json({ answer: "Δεν βρέθηκαν σχετικά έγγραφα." });
     }
 
-    // 3. Format the Context WITH FILENAMES
-    // This looks like: [Source: invoice.jpg] \n Document text here...
-    const context = documents.map((doc: any) => `[Source: ${doc.metadata.source}]\n${doc.content}`).join('\n\n---\n\n');
+    // We pass the URL into the context so the AI knows it!
+    const context = documents.map((doc: any) => `[Source: ${doc.metadata.source}, URL: ${doc.metadata.image_url}]\n${doc.content}`).join('\n\n---\n\n');
 
-    // 4. Ask GPT-4o to answer and CITE the source
+    // Force JSON output
     const chatResponse = await openai.chat.completions.create({
       model: process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o',
+      response_format: { type: 'json_object' }, // THIS IS THE SECRET SAUCE
       messages: [
         { 
           role: 'system', 
-          content: `You are a helpful financial assistant. Answer the user's question using ONLY the provided context. 
-          CRITICAL INSTRUCTION: You MUST cite the source filename in your answer. (Example: "According to invoice_v2.jpg, the total is...").
-          
+          content: `You are a financial AI. Answer using the context. 
+          CRITICAL: You MUST reply in pure JSON format exactly like this:
+          {
+            "answer": "Your detailed answer citing the source file",
+            "image_url": "The URL of the source document",
+            "highlight_text": "The EXACT short string (like '1450.00') from the document to highlight."
+          }
           Context:\n${context}` 
         },
         { role: 'user', content: question }
       ],
-      temperature: 0.2,
+      temperature: 0.1,
     });
 
-    return NextResponse.json({ answer: chatResponse.choices[0].message.content });
-
+    // Parse the JSON string back into a real object
+    const aiResponse = JSON.parse(chatResponse.choices[0].message.content || "{}");
+    
+    return NextResponse.json(aiResponse);
   } catch (error: any) {
     console.error("Chat Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
