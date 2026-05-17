@@ -16,7 +16,7 @@ const HighlightedImage = ({ imageUrl, topPercent, leftPercent }: { imageUrl: str
       {/* If GPT-4o gave us coordinates, draw the glowing radar ping! */}
       {(topPercent !== undefined && leftPercent !== undefined) && (
         <div 
-          style={{ top: `${topPercent}%`, left: `${leftPercent +12}%` }} 
+          style={{ top: `${topPercent}%`, left: `${leftPercent +10}%` }} 
           className="absolute -translate-x-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none"
         >
           {/* Outer glowing pulsing circle */}
