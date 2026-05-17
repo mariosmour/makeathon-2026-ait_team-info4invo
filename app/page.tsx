@@ -9,45 +9,35 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
   const [isScanning, setIsScanning] = useState(true);
   const imageRef = useRef<HTMLImageElement>(null);
 
-  useEffect(() => {
-    if (!imageUrl || !highlightText) return;
+  // We wait for the HTML image to fully load on the screen, then scan it directly!
+  const scanImage = async () => {
+    if (!imageRef.current) return;
+    setIsScanning(true);
+    
+    try {
+      // FIX: Pass the physical image element on the screen instead of the URL!
+      const { data }: { data: any } = await Tesseract.recognize(imageRef.current, 'ell+eng');
+      const wordsArray = data?.words || []; 
+      
+      const targetNumbers = highlightText.replace(/[^0-9]/g, ''); 
+      const searchChunk = targetNumbers.length > 4 ? targetNumbers.substring(0, 4) : targetNumbers;
 
-    const scanImage = async () => {
-      setIsScanning(true);
-      try {
-        const { data }: { data: any } = await Tesseract.recognize(imageUrl, 'ell+eng');
-        const wordsArray = data?.words || []; 
-        
-        // 1. Strip EVERYTHING except pure numbers from what the AI told us to find
-        const targetNumbers = highlightText.replace(/[^0-9]/g, ''); // "$2,608.20" becomes "260820"
-        
-        // 2. Grab the first 4 digits as our "Search Chunk" (e.g., "2608")
-        // This prevents issues if Tesseract splits the decimals into a separate word!
-        const searchChunk = targetNumbers.length > 4 ? targetNumbers.substring(0, 4) : targetNumbers;
-
-        const foundWord = wordsArray.find((w: any) => {
-          // Strip everything except numbers from what Tesseract read
-          const wordNumbers = w.text.replace(/[^0-9]/g, '');
-          
-          // Match if Tesseract's word contains our chunk, OR our chunk contains Tesseract's word
-          return wordNumbers.length >= 2 && (wordNumbers.includes(searchChunk) || searchChunk.includes(wordNumbers));
-        });
-        
-        if (foundWord) {
-          setBox(foundWord.bbox);
-        } else {
-          console.log(`❌ Couldn't find: "${highlightText}" (Numbers only: ${targetNumbers})`);
-          // This will print EXACTLY what Tesseract saw so we can see how bad it messed up
-          console.log("Here is what Tesseract actually read:", wordsArray.map((w:any) => w.text).join(' '));
-        }
-      } catch (error) {
-        console.error("🚨 Tesseract Error:", error);
+      const foundWord = wordsArray.find((w: any) => {
+        const wordNumbers = w.text.replace(/[^0-9]/g, '');
+        return wordNumbers.length >= 2 && (wordNumbers.includes(searchChunk) || searchChunk.includes(wordNumbers));
+      });
+      
+      if (foundWord) {
+        setBox(foundWord.bbox);
+      } else {
+        console.log(`❌ Couldn't find: "${highlightText}" (Numbers only: ${targetNumbers})`);
+        console.log("Here is what Tesseract actually read:", wordsArray.map((w:any) => w.text).join(' '));
       }
-      setIsScanning(false);
-    };
-
-    scanImage();
-  }, [imageUrl, highlightText]);
+    } catch (error) {
+      console.error("🚨 Tesseract Error:", error);
+    }
+    setIsScanning(false);
+  };
 
   return (
     <div className="relative mt-3 border border-[#d0e8da] rounded-xl overflow-hidden bg-gray-50">
@@ -57,19 +47,24 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
         </div>
       )}
       
-      {/* We use standard img tag to get actual dimensions easily */}
-      <img ref={imageRef} src={imageUrl} alt="Source Document" className="w-full h-auto block" crossOrigin="anonymous" />
+      {/* TRIGGER: When the image finishes appearing on screen, run the scan! */}
+      <img 
+        ref={imageRef} 
+        src={imageUrl} 
+        alt="Source Document" 
+        className="w-full h-auto block" 
+        crossOrigin="anonymous" 
+        onLoad={scanImage} 
+      />
       
-      {/* Draw the Red Rectangle! */}
       {box && imageRef.current && (
         <div 
           style={{
             position: 'absolute',
-            border: '3px solid #ef4444', // Red box
-            backgroundColor: 'rgba(239, 68, 68, 0.2)', // Light red tint
+            border: '3px solid #ef4444', 
+            backgroundColor: 'rgba(239, 68, 68, 0.2)', 
             borderRadius: '4px',
             boxShadow: '0 0 0 2px white',
-            // Calculate scale because the displayed image is smaller than the original image
             left: `${(box.x0 / imageRef.current.naturalWidth) * 100}%`,
             top: `${(box.y0 / imageRef.current.naturalHeight) * 100}%`,
             width: `${((box.x1 - box.x0) / imageRef.current.naturalWidth) * 100}%`,
