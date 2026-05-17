@@ -56,15 +56,16 @@ export async function POST(req: Request) {
             },
             "step_2_target_selection": "The user asked for Tax. I will use the Tax vertical position.",
             "answer": "Your detailed answer",
-            "top_percent": 82,
+            "top_percent": 78,
             "left_percent": 80
           }
           
           RULES:
           1. You MUST map out the vertical positions of Subtotal, Tax, and Total in step 1. 
           2. top_percent is 0-100 (0 is the top edge, 100 is the bottom edge).
-          3. TAX IS ALWAYS ABOVE TOTAL. If the user asks for Tax, your top_percent MUST be a smaller number than where the Total is.
-          4. Set your final 'top_percent' to exactly match the requested item from your map.` 
+          3. TAX IS ALWAYS ABOVE TOTAL. 
+          4. Set your final 'top_percent' to exactly match the requested item from your map.
+          5. VERTICAL CALIBRATION: AI models naturally aim too low. Once you find your final top_percent, SUBTRACT 4 from it so the dot lands squarely on the center of the text characters, not the blank space below them.` 
         },
         { role: 'user', content: userMessageContent }
       ],
