@@ -12,25 +12,27 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
 
   useEffect(() => {
     let isMounted = true;
+    let localImageUrl: string | null = null; // We need to store this to clean it up later
 
     const runScan = async () => {
       try {
         await new Promise(res => setTimeout(res, 500));
         
-        // 1. We create the cache-busting URL
         const bypassUrl = `${imageUrl}?t=${Date.now()}`;
         
-        // 2. WE FETCH THE IMAGE MANUALLY FIRST
         console.log("Downloading image to memory...");
         const response = await fetch(bypassUrl);
         if (!response.ok) throw new Error("Network blocked the image download!");
         
-        // 3. Convert it to a raw Binary Large Object (Blob)
         const imageBlob = await response.blob();
-        console.log("Image downloaded successfully! Handing to Tesseract...");
+        console.log(`Image downloaded! Size: ${imageBlob.size} bytes.`);
         
-        // 4. Give the LOCAL blob to Tesseract (completely bypassing network security!)
-        const { data }: { data: any } = await Tesseract.recognize(imageBlob, 'eng');
+        // THE FIX: Convert the raw Blob into a safe, local browser URL
+        localImageUrl = URL.createObjectURL(imageBlob);
+        console.log("Handing local URL to Tesseract...");
+        
+        // Give the local URL to Tesseract
+        const { data }: { data: any } = await Tesseract.recognize(localImageUrl, 'eng');
         
         if (!isMounted) return;
 
@@ -54,6 +56,8 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
         console.error("🚨 Scan Error:", error);
       } finally {
         if (isMounted) setIsScanning(false);
+        // CRITICAL CLEANUP: Destroy the temporary URL so we don't leak memory
+        if (localImageUrl) URL.revokeObjectURL(localImageUrl);
       }
     };
 
