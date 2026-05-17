@@ -7,7 +7,7 @@ const getDaysInMonth = (year: number, month: number) => {
   const date = new Date(year, month, 1);
   const days = [];
   let firstDay = date.getDay() - 1;
-  if (firstDay === -1) firstDay = 6; // Δευτέρα ως πρώτη μέρα
+  if (firstDay === -1) firstDay = 6; 
   
   for (let i = 0; i < firstDay; i++) days.push(null);
   while (date.getMonth() === month) {
@@ -43,16 +43,19 @@ export default function Home() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [uploadedFilesByDate, setUploadedFilesByDate] = useState<{ [key: string]: { name: string, url?: string }[] }>({});
   
-  // --- ΝΕΑ STATES ΓΙΑ BONUS ΣΤΟΙΧΕΙΑ ---
+  // --- STATES ΓΙΑ SIDEBAR WIDGETS ---
   const [history, setHistory] = useState<string[]>([
     "Πληρώθηκε το τιμολόγιο UniDOC;",
     "Ποιο είναι το ΦΠΑ της Vodafone;",
     "Σύνολο πληρωμής CAD"
   ]);
-  const [notes, setNotes] = useState<string>('');
+  
+  // NΕΟ: Λειτουργικό State για τις σημειώσεις του χρήστη
+  const [savedNotes, setSavedNotes] = useState<{id: number, text: string}[]>([]);
+  const [currentNote, setCurrentNote] = useState('');
 
   // Calendar State
-  const [currentMonth, setCurrentMonth] = useState(8); // Σεπτέμβριος
+  const [currentMonth, setCurrentMonth] = useState(8); 
   const [currentYear, setCurrentYear] = useState(2026);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   
@@ -137,7 +140,6 @@ export default function Home() {
     setInput('');
     setIsLoading(true);
 
-    // Προσθήκη της ερώτησης στο προσωρινό ιστορικό αν δεν υπάρχει ήδη
     if (!history.includes(userMsg)) {
       setHistory(prev => [userMsg, ...prev.slice(0, 4)]);
     }
@@ -162,6 +164,14 @@ export default function Home() {
       setMessages((prev) => [...prev, { role: 'ai', text: "Σφάλμα σύνδεσης." }]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Συνάρτηση προσθήκης σημείωσης
+  const handleAddNote = () => {
+    if (currentNote.trim()) {
+      setSavedNotes([{ id: Date.now(), text: currentNote.trim() }, ...savedNotes]);
+      setCurrentNote('');
     }
   };
 
@@ -256,7 +266,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* --- ΝΕΟ WIDGET 1: ΠΡΟΣΩΡΙΝΟ ΙΣΤΟΡΙΚΟ --- */}
+          {/* Ιστορικό Αναζητήσεων */}
           <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
             <div className="text-[0.7rem] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -276,18 +286,50 @@ export default function Home() {
             </div>
           </div>
 
-          {/* --- ΝΕΟ WIDGET 2: ΣΗΜΕΙΩΣΕΙΣ (SCRATCHPAD) --- */}
-          <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm">
-            <div className="text-[0.7rem] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          {/* --- ΛΕΙΤΟΥΡΓΙΚΕΣ ΣΗΜΕΙΩΣΕΙΣ ΧΡΗΣΤΗ --- */}
+          <div className="bg-white border border-gray-100 rounded-2xl p-3 shadow-sm flex flex-col h-[200px]">
+            <div className="text-[0.7rem] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5 shrink-0">
               <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-              Σημειώσεις Παρουσίασης
+              Σημειώσεις Χρήστη
             </div>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Κρατήστε γρήγορες σημειώσεις, ποσά ή σχόλια των κριτών εδώ..."
-              className="w-full h-24 p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-[#1a7a4a] resize-none text-gray-700 placeholder-gray-400 leading-relaxed"
-            />
+            
+            {/* Input Field για τη σημείωση */}
+            <div className="flex gap-2 mb-3 shrink-0">
+              <input
+                type="text"
+                value={currentNote}
+                onChange={(e) => setCurrentNote(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddNote(); }}
+                placeholder="Γράψτε εδώ..."
+                className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-[#1a7a4a] text-gray-700"
+              />
+              <button 
+                onClick={handleAddNote}
+                className="bg-[#1a7a4a] text-white px-2.5 py-1.5 rounded-lg text-xs font-bold hover:bg-[#22a060] transition-colors"
+              >
+                +
+              </button>
+            </div>
+
+            {/* Λίστα με τις αποθηκευμένες σημειώσεις */}
+            <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
+              {savedNotes.length === 0 ? (
+                <div className="text-[0.65rem] text-gray-400 italic text-center mt-2">Η λίστα είναι άδεια.</div>
+              ) : (
+                savedNotes.map(note => (
+                  <div key={note.id} className="flex justify-between items-start gap-2 bg-[#f4fbf7] border border-[#d0e8da] rounded-md p-2 group transition-all">
+                    <span className="text-[0.7rem] text-gray-700 leading-tight break-words flex-1">{note.text}</span>
+                    <button 
+                      onClick={() => setSavedNotes(savedNotes.filter(n => n.id !== note.id))}
+                      className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 shrink-0"
+                      title="Διαγραφή"
+                    >
+                      <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -346,7 +388,6 @@ export default function Home() {
                     )}
                     
                     <div className={`${msg.role === 'ai' ? 'flex flex-col sm:flex-row items-start gap-5' : ''}`}>
-                      {/* Zoom Box Component - Οριζόντιο & Ρυθμισμένο */}
                       {msg.role === 'ai' && msg.image_url && msg.zoom_x !== undefined && msg.zoom_y !== undefined && (
                         <div className="flex flex-col items-center shrink-0">
                           <div 
@@ -367,7 +408,6 @@ export default function Home() {
                       <div className="flex-1 space-y-3">
                         <p className="whitespace-pre-wrap mt-1">{msg.text}</p>
                         
-                        {/* --- BONUS TASK: VISUAL BANK RECONCILIATION CARD --- */}
                         {msg.role === 'ai' && msg.reconciliation && (
                           <div className={`mt-3 border p-4 rounded-xl shadow-sm ${
                             msg.reconciliation.is_matched 
