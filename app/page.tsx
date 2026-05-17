@@ -16,22 +16,29 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
       setIsScanning(true);
       try {
         const { data }: { data: any } = await Tesseract.recognize(imageUrl, 'ell+eng');
-        
-        // SAFETY FIX: If data.words is undefined for any reason, default to an empty array
         const wordsArray = data?.words || []; 
         
-        const clean = (str: string) => str?.toLowerCase().replace(/[^a-z0-9]/gi, '') || '';
-        const targetClean = clean(highlightText);
+        // 1. Strip EVERYTHING except pure numbers from what the AI told us to find
+        const targetNumbers = highlightText.replace(/[^0-9]/g, ''); // "$2,608.20" becomes "260820"
+        
+        // 2. Grab the first 4 digits as our "Search Chunk" (e.g., "2608")
+        // This prevents issues if Tesseract splits the decimals into a separate word!
+        const searchChunk = targetNumbers.length > 4 ? targetNumbers.substring(0, 4) : targetNumbers;
 
         const foundWord = wordsArray.find((w: any) => {
-          const wordClean = clean(w.text);
-          return wordClean.length > 1 && (wordClean.includes(targetClean) || targetClean.includes(wordClean));
+          // Strip everything except numbers from what Tesseract read
+          const wordNumbers = w.text.replace(/[^0-9]/g, '');
+          
+          // Match if Tesseract's word contains our chunk, OR our chunk contains Tesseract's word
+          return wordNumbers.length >= 2 && (wordNumbers.includes(searchChunk) || searchChunk.includes(wordNumbers));
         });
         
         if (foundWord) {
           setBox(foundWord.bbox);
         } else {
-          console.log(`❌ Couldn't find exact match for: "${highlightText}"`);
+          console.log(`❌ Couldn't find: "${highlightText}" (Numbers only: ${targetNumbers})`);
+          // This will print EXACTLY what Tesseract saw so we can see how bad it messed up
+          console.log("Here is what Tesseract actually read:", wordsArray.map((w:any) => w.text).join(' '));
         }
       } catch (error) {
         console.error("🚨 Tesseract Error:", error);
