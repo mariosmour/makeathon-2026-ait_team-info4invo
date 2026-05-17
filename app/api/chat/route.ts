@@ -54,6 +54,7 @@ export async function POST(req: Request) {
             "left_percent": 80
           }
           Look at the provided image. Estimate the physical location of the answer on the page. 
+          VERY IMPORTANT: You must point to the exact NUMERIC VALUE or DATA (e.g., the actual digits "2608.20"). DO NOT point to the text label (like the word "Total", "Amount", or "Invoice"). Point to the numbers!
           top_percent is a number 0-100 (0 is top edge). left_percent is a number 0-100 (0 is left edge).` 
         },
         { role: 'user', content: userMessageContent }
