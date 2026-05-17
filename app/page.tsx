@@ -39,6 +39,7 @@ interface ChatSession {
   messages: ChatMessage[];
   isFile: boolean; 
   fileNames?: string[]; 
+  notes?: string; 
 }
 
 export default function Home() {
@@ -46,11 +47,14 @@ export default function Home() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   
+  // 🚀 REF ΣΥΓΧΡΟΝΙΣΜΟΥ: Προστατεύει από λάθη γρήγορης πληκτρολόγησης
+  const activeSessionRef = useRef<string | null>(null);
+  
+  const [activeNotes, setActiveNotes] = useState('');
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
-  // Calendar State
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth()); 
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -66,18 +70,45 @@ export default function Home() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // --- API & Upload Logic ---
+  // Συγχρονίζουμε το Ref με το State για να μην υπάρχουν καθυστερήσεις
+  useEffect(() => {
+    activeSessionRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  // 🚀 FAST NOTES LOGIC (Με απόλυτη ασφάλεια χάρη στο useRef)
+  const handleNotesChange = (text: string) => {
+    setActiveNotes(text);
+    
+    if (activeSessionRef.current) {
+      setHistory(prev => prev.map(s => s.id === activeSessionRef.current ? { ...s, notes: text } : s));
+    } else {
+      const newId = `note_${Date.now()}`;
+      setActiveSessionId(newId);
+      activeSessionRef.current = newId; // Άμεση ενημέρωση του Ref!
+      
+      const newSession: ChatSession = {
+        id: newId,
+        title: `📝 Σημείωση...`,
+        date: new Date(),
+        messages: [],
+        isFile: false,
+        notes: text
+      };
+      setHistory(prev => [newSession, ...prev]);
+    }
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const filesArray = Array.from(e.target.files);
       setIsLoading(true);
       
-      const isExistingSession = !!activeSessionId;
-      const currentId = isExistingSession ? activeSessionId : `doc_${Date.now()}`;
+      // 🚀 ΤΥΠΙΚΗ ΑΣΦΑΛΕΙΑ TYPESCRIPT: Δεν θα βγάλει ποτέ null error
+      const currentId = activeSessionRef.current || `doc_${Date.now()}`;
+      const isExistingSession = !!activeSessionRef.current;
       
       const initialMsg: ChatMessage = { role: 'ai', text: `⏳ Έναρξη ανάλυσης για ${filesArray.length} νέο(α) αρχείο(α)...` };
 
-      // 🚀 ΛΟΓΙΚΗ: Αν δεν υπάρχει session, φτιάχνουμε νέο. Αν υπάρχει, τα προσθέτουμε στο υπάρχον!
       if (!isExistingSession) {
         const newSession: ChatSession = {
           id: currentId,
@@ -85,18 +116,20 @@ export default function Home() {
           date: new Date(),
           messages: [initialMsg],
           isFile: true,
-          fileNames: filesArray.map(f => f.name)
+          fileNames: filesArray.map(f => f.name),
+          notes: activeNotes
         };
         setHistory(prev => [newSession, ...prev]);
         setActiveSessionId(currentId);
+        activeSessionRef.current = currentId;
         setMessages([initialMsg]);
       } else {
         setMessages(prev => [...prev, initialMsg]);
         setHistory(prev => prev.map(s => s.id === currentId ? {
           ...s,
           messages: [...s.messages, initialMsg],
-          fileNames: [...(s.fileNames || []), ...filesArray.map(f => f.name)], // Προσθήκη ονομάτων στα παλιά
-          isFile: true // Το μετατρέπουμε σε session εγγράφου αν ήταν απλό chat
+          fileNames: [...(s.fileNames || []), ...filesArray.map(f => f.name)], 
+          isFile: true 
         } : s));
       }
 
@@ -151,18 +184,20 @@ export default function Home() {
     setInput('');
     setIsLoading(true);
 
-    let currentId = activeSessionId;
+    let currentId = activeSessionRef.current;
     let nextMsgs = [...messages, userMsgObj];
 
     if (!currentId) {
       currentId = `chat_${Date.now()}`;
       setActiveSessionId(currentId);
+      activeSessionRef.current = currentId;
       const newSession: ChatSession = {
         id: currentId,
         title: `💬 ${userMsgText.slice(0, 22)}${userMsgText.length > 22 ? '...' : ''}`,
         date: new Date(),
         messages: nextMsgs,
-        isFile: false
+        isFile: false,
+        notes: activeNotes 
       };
       setHistory(prev => [newSession, ...prev]);
       setMessages(nextMsgs);
@@ -214,14 +249,14 @@ export default function Home() {
     return getDateKey(session.date) === getDateKey(selectedDate);
   });
 
+  // 🚀 ΑΣΦΑΛΕΙΑ TYPESCRIPT: Αντικατάσταση του flatMap με reduce!
   const selectedDateFiles = filteredHistory
     .filter(s => s.isFile && s.fileNames)
-    .flatMap(s => s.fileNames || []);
+    .reduce((acc, s) => acc.concat(s.fileNames || []), [] as string[]);
 
   return (
     <main className="flex h-screen w-full bg-gradient-to-br from-[#f0f9f4] to-[#e2f1e9] text-[#2d3748] font-sans overflow-hidden relative">
       
-      {/* 🚀 Το hidden input μπαίνει ΠΑΝΩ ΠΑΝΩ για να είναι πάντα προσβάσιμο */}
       <input 
         type="file" 
         ref={fileInputRef} 
@@ -243,7 +278,12 @@ export default function Home() {
         </div>
 
         <div className="p-4 flex-1 overflow-y-auto flex flex-col gap-4">
-          <button onClick={() => { setActiveSessionId(null); setMessages([]); }} className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-[#d0e8da] rounded-xl hover:border-[#1a7a4a] hover:bg-[#f4fbf7] transition-all text-sm font-medium text-gray-700 shadow-sm shrink-0">
+          <button onClick={() => { 
+            setActiveSessionId(null); 
+            activeSessionRef.current = null;
+            setMessages([]); 
+            setActiveNotes(''); 
+          }} className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-[#d0e8da] rounded-xl hover:border-[#1a7a4a] hover:bg-[#f4fbf7] transition-all text-sm font-medium text-gray-700 shadow-sm shrink-0">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"></path></svg>
             Νέα Συνομιλία
           </button>
@@ -325,6 +365,20 @@ export default function Home() {
             </div>
           )}
 
+          {/* 🚀 FAST NOTES WIDGET */}
+          <div className="bg-[#fffdf0] border border-[#f5e6ab] rounded-2xl p-3 shadow-sm shrink-0 flex flex-col transition-all group">
+            <div className="flex items-center gap-1.5 mb-2">
+              <svg width="14" height="14" fill="none" stroke="#d4a32b" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+              <span className="text-[0.7rem] font-bold text-[#d4a32b] uppercase tracking-wider">Fast Notes</span>
+            </div>
+            <textarea
+              value={activeNotes}
+              onChange={(e) => handleNotesChange(e.target.value)}
+              placeholder="Σημειώστε κάτι σημαντικό εδώ..."
+              className="w-full bg-transparent text-[0.8rem] text-gray-700 resize-none outline-none placeholder:text-[#d4a32b]/50 min-h-[70px]"
+            />
+          </div>
+
           {/* ΙΣΤΟΡΙΚΟ ΣΥΝΟΜΙΛΙΩΝ */}
           <div className="flex-1 flex flex-col pt-2 border-t border-gray-100 min-h-0">
             <div className="text-[0.7rem] font-bold text-[#1a7a4a] uppercase tracking-wider mb-3 px-1 shrink-0">
@@ -338,7 +392,12 @@ export default function Home() {
                 filteredHistory.map(session => (
                   <button 
                     key={session.id}
-                    onClick={() => { setActiveSessionId(session.id); setMessages(session.messages); }}
+                    onClick={() => { 
+                      setActiveSessionId(session.id); 
+                      activeSessionRef.current = session.id;
+                      setMessages(session.messages); 
+                      setActiveNotes(session.notes || ''); 
+                    }}
                     className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all text-left ${
                       activeSessionId === session.id 
                         ? 'bg-white border border-[#d0e8da] text-[#1a7a4a] font-bold shadow-sm' 
@@ -414,8 +473,10 @@ export default function Home() {
                     
                     <p className="whitespace-pre-wrap">{msg.text}</p>
 
-                    {/* WIDE SCREENSHOT ΜΕ HIGHLIGHT BOX */}
-                    {msg.role === 'ai' && msg.image_url && msg.box_left !== undefined && (
+                    {/* 🚀 ΑΣΦΑΛΕΙΑ ΣΤΟ CSS: Δεν εμφανίζεται το πλαίσιο αν κάποιο από τα 4 νούμερα λείπει */}
+                    {msg.role === 'ai' && msg.image_url && 
+                     msg.box_left !== undefined && msg.box_top !== undefined && 
+                     msg.box_width !== undefined && msg.box_height !== undefined && (
                       <div className="mt-4 w-full flex flex-col items-start">
                         <span className="text-[0.65rem] text-[#1a7a4a] font-bold uppercase tracking-wider mb-2 bg-[#d6f5e6] px-2 py-0.5 rounded-md">
                           🔍 Οπτική Τεκμηρίωση
@@ -461,7 +522,6 @@ export default function Home() {
           <div className="max-w-[700px] mx-auto">
             <form onSubmit={sendMessage} className="relative flex items-center bg-white rounded-full shadow-lg border border-gray-100">
               
-              {/* 🚀 ΝΕΟ: Κουμπί Προσθήκης Αρχείων μέσα στο Chat Bar */}
               <button 
                 type="button" 
                 onClick={() => fileInputRef.current?.click()} 
