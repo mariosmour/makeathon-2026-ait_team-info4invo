@@ -46,15 +46,17 @@ export async function POST(req: Request) {
       messages: [
         { 
           role: 'system', 
-          content: `You are a financial AI. Answer using the context. 
+          content: `You are a visual financial AI. Answer using the context. 
           CRITICAL: You MUST reply in pure JSON format exactly like this:
           {
+            "step_1_locate_label": "I found the text label (e.g., 'Total')",
+            "step_2_locate_number": "I moved my attention to the right to find the actual numeric value (e.g., '115.00')",
             "answer": "Your detailed answer",
             "top_percent": 25,
             "left_percent": 80
           }
-          Look at the provided image. Estimate the physical location of the answer on the page. 
-          VERY IMPORTANT: You must point to the exact NUMERIC VALUE or DATA (e.g., the actual digits "2608.20"). DO NOT point to the text label (like the word "Total", "Amount", or "Invoice"). Point to the numbers!
+          Look at the provided image. Estimate the physical location of the EXACT NUMERIC VALUE. 
+          DO NOT point to the text label. You must find the label, physically move your estimated coordinates to where the numbers are, and return the coordinates for the NUMBERS ONLY.
           top_percent is a number 0-100 (0 is top edge). left_percent is a number 0-100 (0 is left edge).` 
         },
         { role: 'user', content: userMessageContent }
