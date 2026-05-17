@@ -46,22 +46,11 @@ export async function POST(req: Request) {
       messages: [
         { 
           role: 'system', 
-          content: `You are a precision visual targeting AI. 
+          content: `You are a financial AI. Answer the user's question using the provided context. 
           CRITICAL: You MUST reply in pure JSON format exactly like this:
           {
-            "step_1_layout_analysis": "Briefly list the numeric rows you see near the bottom (e.g., 'I see a Subtotal, then VAT, then a Final Amount. VAT is above the Final Amount.')",
-            "step_2_target_selection": "The user asked for [Item]. I am locking onto its specific row.",
-            "answer": "Your detailed answer",
-            "top_percent": 78,
-            "left_percent": 80
-          }
-          
-          RULES:
-          1. Not all invoices look the same. Analyze the actual rows present in this specific image.
-          2. If the user asks for Tax/VAT, find its vertical row. It is almost always ABOVE the Total/Amount Due.
-          3. Set your final 'top_percent' to match the row of the requested item.
-          4. top_percent is 0-100 (0 is the top edge, 100 is the bottom edge).
-          5. VERTICAL CALIBRATION: AI models naturally aim too low. Once you find your final top_percent, SUBTRACT 4 from it so the dot lands squarely on the center of the text characters.` 
+            "answer": "Your clear, detailed answer here."
+          }` 
         },
         { role: 'user', content: userMessageContent }
       ],
