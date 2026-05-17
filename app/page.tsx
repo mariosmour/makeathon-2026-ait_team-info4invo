@@ -15,14 +15,22 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
 
     const runScan = async () => {
       try {
-        // 1. Give the browser a tiny delay to breathe
         await new Promise(res => setTimeout(res, 500));
         
-        // 2. Fetch the image directly via Tesseract using our Cache Buster
+        // 1. We create the cache-busting URL
         const bypassUrl = `${imageUrl}?t=${Date.now()}`;
         
-        // 3. Scan ONLY with English ('eng') since Greek can sometimes scramble numbers/dollar signs
-        const { data }: { data: any } = await Tesseract.recognize(bypassUrl, 'eng');
+        // 2. WE FETCH THE IMAGE MANUALLY FIRST
+        console.log("Downloading image to memory...");
+        const response = await fetch(bypassUrl);
+        if (!response.ok) throw new Error("Network blocked the image download!");
+        
+        // 3. Convert it to a raw Binary Large Object (Blob)
+        const imageBlob = await response.blob();
+        console.log("Image downloaded successfully! Handing to Tesseract...");
+        
+        // 4. Give the LOCAL blob to Tesseract (completely bypassing network security!)
+        const { data }: { data: any } = await Tesseract.recognize(imageBlob, 'eng');
         
         if (!isMounted) return;
 
@@ -37,12 +45,13 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
         
         if (foundWord) {
           setBox(foundWord.bbox);
+          console.log("✅ Match found!");
         } else {
           console.log(`❌ Couldn't find: "${highlightText}" (Numbers only: ${targetNumbers})`);
           console.log("What Tesseract saw:", wordsArray.map((w:any) => w.text).join(' '));
         }
       } catch (error) {
-        console.error("🚨 Tesseract Error:", error);
+        console.error("🚨 Scan Error:", error);
       } finally {
         if (isMounted) setIsScanning(false);
       }
@@ -50,9 +59,8 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
 
     runScan();
 
-    // Cleanup function to prevent memory leaks if you close the chat early
     return () => { isMounted = false; };
-  }, [imageUrl, highlightText]); // ONLY runs once when these variables are set!
+  }, [imageUrl, highlightText]);
 
   return (
     <div className="relative mt-3 border border-[#d0e8da] rounded-xl overflow-hidden bg-gray-50">
