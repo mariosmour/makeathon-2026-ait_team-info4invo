@@ -38,14 +38,17 @@ interface ChatSession {
   date: Date;
   messages: ChatMessage[];
   isFile: boolean; 
-  fileNames?: string[]; // 🚀 ΝΕΟ: Αποθηκεύει τα ονόματα όλων των αρχείων του μαζικού Upload!
+  fileNames?: string[]; 
+  notes?: string; // 🚀 ΝΕΟ: Αποθήκευση των Fast Notes ανά συνομιλία!
 }
 
 export default function Home() {
-  // 🚀 STATE ΙΣΤΟΡΙΚΟΥ ΚΑΙ ΜΗΝΥΜΑΤΩΝ
   const [history, setHistory] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  
+  // 🚀 ΝΕΟ STATE: Το περιεχόμενο του Fast Notes για την τρέχουσα οθόνη
+  const [activeNotes, setActiveNotes] = useState('');
   
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -67,35 +70,69 @@ export default function Home() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // 🚀 ΛΟΓΙΚΗ: Διαχείριση των Fast Notes και δυναμική αποθήκευση στο Ιστορικό
+  const handleNotesChange = (text: string) => {
+    setActiveNotes(text);
+    
+    if (activeSessionId) {
+      // Αν υπάρχει ανοιχτό chat, σώσε τη σημείωση σε αυτό
+      setHistory(prev => prev.map(s => s.id === activeSessionId ? { ...s, notes: text } : s));
+    } else {
+      // Αν ΔΕΝ υπάρχει ανοιχτό chat, φτιάξε ένα νέο session "Σημείωση" για να μην χαθεί!
+      const newId = `note_${Date.now()}`;
+      setActiveSessionId(newId);
+      const newSession: ChatSession = {
+        id: newId,
+        title: `📝 Σημείωση...`,
+        date: new Date(),
+        messages: [],
+        isFile: false,
+        notes: text
+      };
+      setHistory(prev => [newSession, ...prev]);
+    }
+  };
+
   // --- API & Upload Logic ---
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const filesArray = Array.from(e.target.files);
       setIsLoading(true);
       
-      const newSessionId = `doc_${Date.now()}`;
-      const initialMsg: ChatMessage = { role: 'ai', text: `⏳ Έναρξη ανάλυσης για ${filesArray.length} αρχεία...` };
+      const isExistingSession = !!activeSessionId;
+      const currentId = isExistingSession ? activeSessionId : `doc_${Date.now()}`;
       
-      // 🚀 Δημιουργία Session με όλα τα ονόματα των αρχείων για το Ημερολόγιο
-      const newSession: ChatSession = {
-        id: newSessionId,
-        title: `📄 ${filesArray[0].name} ${filesArray.length > 1 ? `(+${filesArray.length - 1})` : ''}`,
-        date: new Date(),
-        messages: [initialMsg],
-        isFile: true,
-        fileNames: filesArray.map(f => f.name) // Σώζουμε τα ονόματα ξεχωριστά
-      };
+      const initialMsg: ChatMessage = { role: 'ai', text: `⏳ Έναρξη ανάλυσης για ${filesArray.length} νέο(α) αρχείο(α)...` };
 
-      setHistory(prev => [newSession, ...prev]);
-      setActiveSessionId(newSessionId);
-      setMessages([initialMsg]);
+      if (!isExistingSession) {
+        const newSession: ChatSession = {
+          id: currentId,
+          title: `📄 ${filesArray[0].name} ${filesArray.length > 1 ? `(+${filesArray.length - 1})` : ''}`,
+          date: new Date(),
+          messages: [initialMsg],
+          isFile: true,
+          fileNames: filesArray.map(f => f.name),
+          notes: activeNotes // Μεταφέρουμε τυχόν ορφανές σημειώσεις στο νέο αρχείο
+        };
+        setHistory(prev => [newSession, ...prev]);
+        setActiveSessionId(currentId);
+        setMessages([initialMsg]);
+      } else {
+        setMessages(prev => [...prev, initialMsg]);
+        setHistory(prev => prev.map(s => s.id === currentId ? {
+          ...s,
+          messages: [...s.messages, initialMsg],
+          fileNames: [...(s.fileNames || []), ...filesArray.map(f => f.name)], 
+          isFile: true 
+        } : s));
+      }
 
       try {
         await Promise.all(filesArray.map(file => saveToDatabase(file)));
         
-        const successMsg: ChatMessage = { role: 'ai', text: `✨ Όλα τα αρχεία (${filesArray.length}) αναλύθηκαν και αποθηκεύτηκαν! Πώς μπορώ να βοηθήσω;` };
+        const successMsg: ChatMessage = { role: 'ai', text: `✨ ${filesArray.length} νέο(α) αρχείο(α) προστέθηκαν στη συνομιλία! Πώς μπορώ να βοηθήσω;` };
         setMessages(prev => [...prev, successMsg]);
-        setHistory(prev => prev.map(s => s.id === newSessionId ? { ...s, messages: [...s.messages, successMsg] } : s));
+        setHistory(prev => prev.map(s => s.id === currentId ? { ...s, messages: [...s.messages, successMsg] } : s));
       } catch (error) {
         console.error("Upload error:", error);
       } finally {
@@ -152,7 +189,8 @@ export default function Home() {
         title: `💬 ${userMsgText.slice(0, 22)}${userMsgText.length > 22 ? '...' : ''}`,
         date: new Date(),
         messages: nextMsgs,
-        isFile: false
+        isFile: false,
+        notes: activeNotes // Μεταφέρουμε τις ορφανές σημειώσεις
       };
       setHistory(prev => [newSession, ...prev]);
       setMessages(nextMsgs);
@@ -191,30 +229,35 @@ export default function Home() {
     }
   };
 
-  // 🧮 1. Διορθωμένος Υπολογισμός Εγγράφων ανά Ημερομηνία (Μετράει ΚΑΘΕ αρχείο χωριστά)
   const fileCountsByDate: { [key: string]: number } = {};
   history.forEach(session => {
     if (session.isFile && session.fileNames) {
       const key = getDateKey(session.date);
-      // Αντί για 1, προσθέτουμε τον ακριβή αριθμό των αρχείων που ανέβηκαν!
       fileCountsByDate[key] = (fileCountsByDate[key] || 0) + session.fileNames.length;
     }
   });
 
-  // 🔍 2. Φιλτράρισμα Ιστορικού βάσει της επιλεγμένης ημέρας
   const filteredHistory = history.filter(session => {
     if (!selectedDate) return true;
     return getDateKey(session.date) === getDateKey(selectedDate);
   });
 
-  // 📄 3. Συλλογή των ονομάτων αρχείων για τη συγκεκριμένη (επιλεγμένη) μέρα
   const selectedDateFiles = filteredHistory
     .filter(s => s.isFile && s.fileNames)
     .flatMap(s => s.fileNames || []);
 
   return (
-    <main className="flex h-screen w-full bg-gradient-to-br from-[#f0f9f4] to-[#e2f1e9] text-[#2d3748] font-sans overflow-hidden">
+    <main className="flex h-screen w-full bg-gradient-to-br from-[#f0f9f4] to-[#e2f1e9] text-[#2d3748] font-sans overflow-hidden relative">
       
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        className="hidden" 
+        accept=".pdf,.png,.jpg,.jpeg" 
+        multiple 
+        onChange={handleFileUpload} 
+      />
+
       {/* --- SIDEBAR --- */}
       <div className={`${isSidebarOpen ? 'w-[300px]' : 'w-0'} transition-all duration-300 ease-in-out bg-white/80 backdrop-blur-md border-r border-[#d0e8da] flex flex-col overflow-hidden shrink-0 shadow-sm z-20`}>
         <div className="flex items-center justify-between p-4 border-b border-gray-100/50">
@@ -227,7 +270,11 @@ export default function Home() {
         </div>
 
         <div className="p-4 flex-1 overflow-y-auto flex flex-col gap-4">
-          <button onClick={() => { setActiveSessionId(null); setMessages([]); }} className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-[#d0e8da] rounded-xl hover:border-[#1a7a4a] hover:bg-[#f4fbf7] transition-all text-sm font-medium text-gray-700 shadow-sm shrink-0">
+          <button onClick={() => { 
+            setActiveSessionId(null); 
+            setMessages([]); 
+            setActiveNotes(''); // 🚀 Καθαρισμός Σημειώσεων σε Νέα Συνομιλία
+          }} className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-[#d0e8da] rounded-xl hover:border-[#1a7a4a] hover:bg-[#f4fbf7] transition-all text-sm font-medium text-gray-700 shadow-sm shrink-0">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"></path></svg>
             Νέα Συνομιλία
           </button>
@@ -261,7 +308,6 @@ export default function Home() {
                   <div key={i} className="aspect-square flex items-center justify-center relative">
                     <button 
                       onClick={() => {
-                        // Αν έχει αρχεία, με το κλικ διαλέγεις/ξε-διαλέγεις τη μέρα!
                         if (fileCount > 0) {
                           setSelectedDate(isSelected ? null : date);
                         }
@@ -284,7 +330,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 🚀 ΝΕΟ: Εμφάνιση συγκεκριμένων αρχείων αν έχει επιλεχθεί μέρα */}
           {selectedDate && (
             <div className="bg-[#f4fbf7] border border-[#1a7a4a]/20 rounded-xl p-3 shadow-sm animate-fadeIn flex flex-col gap-2 shrink-0">
               <div className="flex items-center justify-between border-b border-[#1a7a4a]/10 pb-2">
@@ -311,171 +356,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* 🚀 ΙΣΤΟΡΙΚΟ ΣΥΝΟΜΙΛΙΩΝ (Φιλτραρισμένο) */}
-          <div className="flex-1 flex flex-col pt-2 border-t border-gray-100 min-h-0">
-            <div className="text-[0.7rem] font-bold text-[#1a7a4a] uppercase tracking-wider mb-3 px-1 shrink-0">
-              {selectedDate ? 'Συνομιλιες Ημερας' : 'Ιστορικο Συνομιλιων'}
-            </div>
-            
-            <div className="overflow-y-auto space-y-1 pr-1">
-              {filteredHistory.length === 0 ? (
-                <div className="text-[0.75rem] text-gray-400 italic text-center py-4">Δεν υπάρχουν συνομιλίες.</div>
-              ) : (
-                filteredHistory.map(session => (
-                  <button 
-                    key={session.id}
-                    onClick={() => { setActiveSessionId(session.id); setMessages(session.messages); }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all text-left ${
-                      activeSessionId === session.id 
-                        ? 'bg-white border border-[#d0e8da] text-[#1a7a4a] font-bold shadow-sm' 
-                        : 'text-gray-600 hover:bg-gray-50 border border-transparent'
-                    }`}
-                  >
-                    <svg className="shrink-0" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
-                    </svg>
-                    <span className="truncate flex-1">{session.title}</span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* --- MAIN CONTENT AREA --- */}
-      <div className="flex-1 flex flex-col relative min-w-0">
-        
-        {!isSidebarOpen && (
-          <div className="absolute top-4 left-4 z-10">
-            <button onClick={() => setIsSidebarOpen(true)} className="p-2 bg-white/80 backdrop-blur-sm border border-[#d0e8da] rounded-lg shadow-sm text-gray-600 hover:text-[#1a7a4a] transition-colors">
-              <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"></path></svg>
-            </button>
-          </div>
-        )}
-
-        <div className="flex-1 overflow-y-auto px-4 pb-32 pt-12 flex flex-col items-center">
-          
-          {messages.length === 0 ? (
-            <div className="max-w-[700px] w-full flex flex-col items-center justify-center mt-10 lg:mt-24 animate-fadeIn">
-              <h1 className="text-[2.8rem] font-bold tracking-tight text-gray-800 mb-4">
-                info<span className="bg-[#1a7a4a] text-white px-2 py-0.5 rounded-lg mx-0.5">4</span>invo
-              </h1>
-              <p className="text-gray-500 text-center mb-10 max-w-[450px]">
-                Ανεβάστε το τιμολόγιο. Όλα τα δεδομένα σας αναλύονται και αποθηκεύονται με ασφάλεια στη βάση δεδομένων.
-              </p>
-
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                className="hidden" 
-                accept=".pdf,.png,.jpg,.jpeg" 
-                multiple 
-                onChange={handleFileUpload} 
-              />
-              <button 
-                onClick={() => fileInputRef.current?.click()} 
-                className="w-full max-w-[600px] aspect-[2.5/1] border-2 border-dashed border-gray-300 rounded-[2rem] bg-white/50 hover:bg-white hover:border-[#1a7a4a] hover:shadow-lg transition-all flex flex-col items-center justify-center gap-3 group shadow-sm"
-              >
-                <div className="text-gray-400 group-hover:text-[#1a7a4a] transition-colors">
-                  <svg width="40" height="40" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                </div>
-                <div>
-                  <div className="font-semibold text-gray-700 text-lg">Επιλέξτε ή σύρετε το τιμολόγιο εδώ</div>
-                  <div className="text-sm text-gray-400 mt-1 uppercase tracking-wider">Μπορείτε να επιλέξετε πολλά αρχεία (PDF, PNG, JPG)</div>
-                </div>
-              </button>
-            </div>
-          ) : (
-            
-            <div className="max-w-[750px] w-full space-y-6">
-              {messages.map((msg, index) => (
-                <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[90%] rounded-2xl p-5 shadow-sm text-[0.95rem] leading-relaxed ${
-                    msg.role === 'user' 
-                      ? 'bg-white border border-gray-100 text-gray-800' 
-                      : 'bg-transparent text-gray-800'
-                  }`}>
-                    
-                    {msg.role === 'ai' && (
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="w-[24px] h-[24px] bg-[#1a7a4a] rounded flex items-center justify-center">
-                          <span className="text-white text-xs font-bold">4</span>
-                        </div>
-                        <span className="font-bold text-gray-800 text-sm">info4invo</span>
-                      </div>
-                    )}
-                    
-                    <p className="whitespace-pre-wrap">{msg.text}</p>
-
-                    {/* 🚀 WIDE SCREENSHOT ΜΕ HIGHLIGHT BOX ΑΠΟ ΤΟ GPT-4o */}
-                    {msg.role === 'ai' && msg.image_url && msg.box_left !== undefined && (
-                      <div className="mt-4 w-full flex flex-col items-start">
-                        <span className="text-[0.65rem] text-[#1a7a4a] font-bold uppercase tracking-wider mb-2 bg-[#d6f5e6] px-2 py-0.5 rounded-md">
-                          🔍 Οπτική Τεκμηρίωση
-                        </span>
-                        
-                        <div className="w-full relative h-[160px] rounded-xl border border-[#1a7a4a]/20 overflow-hidden bg-gray-50 shadow-sm flex items-center">
-                           <div 
-                             className="w-full relative transition-transform duration-500"
-                             style={{ transform: `translateY(calc(-${msg.box_top}% + 80px))` }}
-                           >
-                              <img src={msg.image_url} className="w-full h-auto opacity-90" alt="Evidence" />
-                              
-                              <div 
-                                className="absolute border-[3px] border-[#1a7a4a] rounded-md shadow-[0_0_0_9999px_rgba(255,255,255,0.65)]"
-                                style={{
-                                  left: `${msg.box_left}%`,
-                                  top: `${msg.box_top}%`,
-                                  width: `${msg.box_width}%`,
-                                  height: `${msg.box_height}%`,
-                                }}
-                              />
-                           </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {isLoading && (
-                <div className="flex items-center gap-2 text-gray-400 text-sm pl-2">
-                   <div className="w-2 h-2 bg-[#1a7a4a] rounded-full animate-bounce"></div>
-                   <div className="w-2 h-2 bg-[#1a7a4a] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                   <div className="w-2 h-2 bg-[#1a7a4a] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
-          )}
-        </div>
-
-        {/* --- FIXED BOTTOM INPUT --- */}
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#e2f1e9] via-[#e2f1e9]/90 to-transparent pt-10 pb-6 px-4 z-10">
-          <div className="max-w-[700px] mx-auto">
-            <form onSubmit={sendMessage} className="relative flex items-center bg-white rounded-full shadow-lg border border-gray-100">
-              <input 
-                type="text" 
-                value={input} 
-                onChange={(e) => setInput(e.target.value)} 
-                placeholder="Ρωτήστε το info4invo οτιδήποτε..." 
-                disabled={isLoading} 
-                className="w-full bg-transparent pl-6 pr-14 py-4 text-gray-800 text-[0.95rem] focus:outline-none disabled:opacity-50" 
-              />
-              <button 
-                type="submit" 
-                disabled={isLoading || !input.trim()} 
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-[34px] h-[34px] bg-gray-100 rounded-full flex items-center justify-center text-gray-400 hover:bg-[#1a7a4a] hover:text-white transition-all disabled:opacity-50"
-              >
-                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
-              </button>
-            </form>
-            <div className="text-center mt-3 text-[0.65rem] text-gray-400">
-              Το info4invo μπορεί να κάνει λάθη. Ελέγξτε τις σημαντικές πληροφορίες.
-            </div>
-          </div>
-        </div>
-      </div>
-    </main>
-  );
-}
+          {/* 🚀 FAST NOTES WIDGET */}
+          <div className="bg-[#fffdf0] border border-[#f5e6ab] rounded-2xl p-3 shadow-sm shrink-0 flex flex-col transition-all group">
+            <div className="flex items-center gap-1.5 mb-2">
