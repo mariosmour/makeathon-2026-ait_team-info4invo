@@ -8,6 +8,16 @@ const openai = new OpenAI({
   baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/v1/`,
 });
 
+// --- VIRTUAL BANK STATEMENT (CSV) ---
+// Εδώ έχουμε περάσει εικονικές εγγραφές που συμπίπτουν με τα demo τιμολόγιά σας ($115.00 και $2,608.20)
+const VIRTUAL_BANK_STATEMENT_CSV = `
+Transaction_ID,Booking_Date,Description,Partner_Name,Amount_EUR,Status
+TXN-2019-0852,2019-01-10,REMITTANCE INV-0852,JOHN DOE,-115.00,COMPLETED
+TXN-2026-4412,2026-09-14,SUPPLIER PAYMENT,VODAFONE GR,-550.00,COMPLETED
+TXN-2026-0916,2026-09-16,WIRE TRANSFER TOTAL CAD,UNIDOC LTD,-2608.20,COMPLETED
+TXN-2026-7781,2026-09-17,OFFICE GEAR,RECEIPT-9912,-45.50,COMPLETED
+`;
+
 export async function POST(req: Request) {
   try {
     const { question } = await req.json();
@@ -25,17 +35,15 @@ export async function POST(req: Request) {
 
     if (error) throw error;
     if (!documents || documents.length === 0) {
-      return NextResponse.json({ answer: "Δεν βρέθηκαν σχετικά έγγραφα." });
+      return NextResponse.json({ answer: "Δεν βρέθηκαν σχετικά έγγραφα στη βάση." });
     }
 
     const context = documents.map((doc: any) => `[Source: ${doc.metadata.source}]\n${doc.content}`).join('\n\n---\n\n');
     const imageUrl = documents[0].metadata.image_url;
 
-    // We dynamically build the user message. If we have an image, we show it to GPT-4o!
     const userMessageContent: any[] = [
       { type: 'text', text: `Database Context:\n${context}\n\nQuestion: ${question}` }
     ];
-    
     if (imageUrl) {
       userMessageContent.push({ type: 'image_url', image_url: { url: imageUrl } });
     }
@@ -46,20 +54,37 @@ export async function POST(req: Request) {
       messages: [
         { 
           role: 'system', 
-          content: `You are a financial AI. Answer the user's question using the provided context. 
+          content: `You are a financial AI agent with automated Bank Reconciliation capabilities. 
+          
+          VIRTUAL BANK STATEMENT DATA (CSV format):
+          ${VIRTUAL_BANK_STATEMENT_CSV}
+
           CRITICAL: You MUST reply in pure JSON format exactly like this:
           {
-            "answer": "Your clear, detailed answer here.",
+            "answer": "Your clear, detailed text answer in Greek.",
             "zoom_x": 85,
-            "zoom_y": 90
+            "zoom_y": 90,
+            "reconciliation": {
+              "is_matched": true,
+              "transaction_id": "TXN-XXXXXX",
+              "date": "YYYY-MM-DD",
+              "partner": "Name",
+              "amount": "115.00",
+              "bank_status": "COMPLETED"
+            }
           }
-          Look at the image and estimate where the answer is physically located.
-          zoom_x is 0-100 (0 is left edge, 100 is right edge).
-          zoom_y is 0-100 (0 is top edge, 100 is bottom edge).
           
-          TRAP WARNING: DO NOT target the text label (e.g., the word "Total" or "Tax"). 
-          You must target the EXACT DIGITS/DATA (e.g., "$115.00"). 
-          Numeric values are almost always on the right side of the invoice. Ensure your 'zoom_x' is shifted far enough to the right (usually between 75 and 95) to capture the numbers, not the words!` 
+          DIRECTIONS FOR ZOOM:
+          Identify the visual bounding box for the question topic. Set zoom_x (0-100) and zoom_y (0-100). 
+          To capture numbers on the right side, shift zoom_x to 75-95.
+
+          DIRECTIONS FOR BANK RECONCILIATION:
+          If the user asks if the invoice has been paid, verified, matched, or asks for reconciliation:
+          1. Check the extracted invoice total or amount from the database context.
+          2. Scan the VIRTUAL BANK STATEMENT DATA provided above to see if there is an outgoing transaction matching that exact amount.
+          3. If a match is found, populate the "reconciliation" object with the data from the CSV.
+          4. If NO match is found, set "reconciliation": { "is_matched": false }.
+          5. If the user's question is NOT about payment validation/reconciliation, set "reconciliation": null.` 
         },
         { role: 'user', content: userMessageContent }
       ],
@@ -67,7 +92,6 @@ export async function POST(req: Request) {
     });
 
     const aiResponse = JSON.parse(chatResponse.choices[0].message.content || "{}");
-    // Securely attach the URL from our database, not the AI
     aiResponse.image_url = imageUrl; 
     
     return NextResponse.json(aiResponse);

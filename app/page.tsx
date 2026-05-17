@@ -7,7 +7,7 @@ const getDaysInMonth = (year: number, month: number) => {
   const date = new Date(year, month, 1);
   const days = [];
   let firstDay = date.getDay() - 1;
-  if (firstDay === -1) firstDay = 6; // Δευτέρα ως πρώτη μέρα
+  if (firstDay === -1) firstDay = 6; 
   
   for (let i = 0; i < firstDay; i++) days.push(null);
   while (date.getMonth() === month) {
@@ -17,23 +17,35 @@ const getDaysInMonth = (year: number, month: number) => {
   return days;
 };
 
-// Δημιουργία ενός string-key για το object mapping (π.χ. "2026-08-15")
 const getDateKey = (date: Date) => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 
 export default function Home() {
-  // Προστέθηκαν τα zoom_x και zoom_y στο state των μηνυμάτων
-  const [messages, setMessages] = useState<{ role: 'user' | 'ai', text: string, image_url?: string, zoom_x?: number, zoom_y?: number }[]>([]);
+  // Προστέθηκε το reconciliation state στα μηνύματα
+  const [messages, setMessages] = useState<{ 
+    role: 'user' | 'ai', 
+    text: string, 
+    image_url?: string, 
+    zoom_x?: number, 
+    zoom_y?: number,
+    reconciliation?: {
+      is_matched: boolean;
+      transaction_id: string;
+      date: string;
+      partner: string;
+      amount: string;
+      bank_status: string;
+    } | null;
+  }[]>([]);
+  
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  
-  // State για την καταγραφή αρχείων ανά ημερομηνία
   const [uploadedFilesByDate, setUploadedFilesByDate] = useState<{ [key: string]: { name: string, url?: string }[] }>({});
   
   // Calendar State
-  const [currentMonth, setCurrentMonth] = useState(8); // Σεπτέμβριος (0-indexed)
+  const [currentMonth, setCurrentMonth] = useState(8); 
   const [currentYear, setCurrentYear] = useState(2026);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   
@@ -48,7 +60,6 @@ export default function Home() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // --- API & Upload Logic ---
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const filesArray = Array.from(e.target.files);
@@ -66,7 +77,7 @@ export default function Home() {
           text: `✨ Όλα τα αρχεία (${filesArray.length}) αναλύθηκαν και ταξινομήθηκαν στο ημερολόγιο!` 
         }]);
       } catch (error) {
-        console.error("Upload error:", error);
+        console.error(error);
       } finally {
         setIsLoading(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -126,13 +137,13 @@ export default function Home() {
       });
       const data = await response.json();
       
-      // Αποθηκεύουμε και τις συντεταγμένες του zoom στο state
       setMessages((prev) => [...prev, { 
         role: 'ai', 
         text: data.answer || data.error || "Προέκυψε κάποιο σφάλμα.", 
         image_url: data.image_url,
         zoom_x: data.zoom_x,
-        zoom_y: data.zoom_y
+        zoom_y: data.zoom_y,
+        reconciliation: data.reconciliation // Αποθήκευση της διασταύρωσης τράπεζας
       }]);
     } catch (error) {
       setMessages((prev) => [...prev, { role: 'ai', text: "Σφάλμα σύνδεσης." }]);
@@ -199,7 +210,6 @@ export default function Home() {
                       `}
                     >
                       <span>{date.getDate()}</span>
-                      
                       {fileCount > 0 && !isSelected && (
                         <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-[#22a060] text-white rounded-full text-[0.55rem] font-bold flex items-center justify-center border border-white">
                           {fileCount}
@@ -256,14 +266,7 @@ export default function Home() {
                 Ανεβάστε το τιμολόγιο. Όλα τα δεδομένα σας αναλύονται και αποθηκεύονται με ασφάλεια στη βάση δεδομένων.
               </p>
 
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                className="hidden" 
-                accept=".pdf,.png,.jpg,.jpeg" 
-                multiple 
-                onChange={handleFileUpload} 
-              />
+              <input type="file" ref={fileInputRef} className="hidden" accept=".pdf,.png,.jpg,.jpeg" multiple onChange={handleFileUpload} />
               <button 
                 onClick={() => fileInputRef.current?.click()} 
                 className="w-full max-w-[600px] aspect-[2.5/1] border-2 border-dashed border-gray-300 rounded-[2rem] bg-white/50 hover:bg-white hover:border-[#1a7a4a] hover:shadow-lg transition-all flex flex-col items-center justify-center gap-3 group shadow-sm"
@@ -273,7 +276,7 @@ export default function Home() {
                 </div>
                 <div>
                   <div className="font-semibold text-gray-700 text-lg">Επιλέξτε ή σύρετε το τιμολόγιο εδώ</div>
-                  <div className="text-sm text-gray-400 mt-1 uppercase tracking-wider">Μπορείτε να επιλέξετε πολλά αρχεία (PDF, PNG, JPG)</div>
+                  <div className="text-sm text-gray-400 mt-1 uppercase tracking-wider">Υποστηρίζεται μαζικό ανέβασμα πολλών αρχείων</div>
                 </div>
               </button>
             </div>
@@ -283,9 +286,7 @@ export default function Home() {
               {messages.map((msg, index) => (
                 <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[85%] rounded-2xl p-5 shadow-sm text-[0.95rem] leading-relaxed ${
-                    msg.role === 'user' 
-                      ? 'bg-white border border-gray-100 text-gray-800' 
-                      : 'bg-transparent text-gray-800'
+                    msg.role === 'user' ? 'bg-white border border-gray-100 text-gray-800' : 'bg-transparent text-gray-800'
                   }`}>
                     {msg.role === 'ai' && (
                       <div className="flex items-center gap-2 mb-3">
@@ -296,21 +297,16 @@ export default function Home() {
                       </div>
                     )}
                     
-                    {/* ZOOM BOX ΚΑΙ ΚΕΙΜΕΝΟ ΑΠΑΝΤΗΣΗΣ */}
                     <div className={`${msg.role === 'ai' ? 'flex flex-col sm:flex-row items-start gap-5' : ''}`}>
-                      
-                      {/* Zoom Box Component */}
+                      {/* Zoom Box Component - Οριζόντιο & Ρυθμισμένο */}
                       {msg.role === 'ai' && msg.image_url && msg.zoom_x !== undefined && msg.zoom_y !== undefined && (
                         <div className="flex flex-col items-center shrink-0">
                           <div 
-                            // 1. CHANGED SHAPE: Made it a wide rectangle (w-48) instead of a square
                             className="w-48 h-20 rounded-xl border-2 border-[#1a7a4a]/20 shadow-md bg-white overflow-hidden"
                             style={{
                               backgroundImage: `url(${msg.image_url})`,
-                              // 2. ZOOMED OUT: Reduced to 250% so the whole row fits
                               backgroundSize: '250%', 
-                              // 3. OPTIONAL NUDGE: We artificially push the camera slightly to the right just in case!
-                              backgroundPosition: `${Math.min((msg.zoom_x) + 15, 100)}% ${msg.zoom_y}%`,
+                              backgroundPosition: `${Math.min((msg.zoom_x) + 12, 100)}% ${msg.zoom_y}%`,
                               backgroundRepeat: 'no-repeat'
                             }}
                           />
@@ -320,10 +316,46 @@ export default function Home() {
                         </div>
                       )}
                       
-                      <p className="whitespace-pre-wrap flex-1 mt-1">{msg.text}</p>
+                      <div className="flex-1 space-y-3">
+                        <p className="whitespace-pre-wrap mt-1">{msg.text}</p>
+                        
+                        {/* --- BONUS TASK: VISUAL BANK RECONCILIATION CARD --- */}
+                        {msg.role === 'ai' && msg.reconciliation && (
+                          <div className={`mt-3 border p-4 rounded-xl shadow-sm ${
+                            msg.reconciliation.is_matched 
+                              ? 'bg-emerald-50/70 border-emerald-200' 
+                              : 'bg-amber-50/70 border-amber-200'
+                          }`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-gray-700">
+                                🏦 Διασταύρωση Τράπεζας (Reconciliation)
+                              </div>
+                              <span className={`text-[0.65rem] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
+                                msg.reconciliation.is_matched 
+                                  ? 'bg-emerald-200 text-emerald-800 border-emerald-300' 
+                                  : 'bg-amber-200 text-amber-800 border-amber-300'
+                              }`}>
+                                {msg.reconciliation.is_matched ? '✓ VERIFIED / PAID' : '⚠ UNMATCHED / UNPAID'}
+                              </span>
+                            </div>
+                            
+                            {msg.reconciliation.is_matched ? (
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-gray-600 mt-2">
+                                <div><span className="text-gray-400">ID Συναλλαγής:</span> <code className="font-mono bg-white/60 px-1 rounded">{msg.reconciliation.transaction_id}</code></div>
+                                <div><span className="text-gray-400">Ημ/νία Πληρωμής:</span> {msg.reconciliation.date}</div>
+                                <div><span className="text-gray-400">Δικαιούχος:</span> {msg.reconciliation.partner}</div>
+                                <div><span className="text-gray-400">Ποσό Τράπεζας:</span> <span className="font-semibold text-emerald-700">-{msg.reconciliation.amount} €</span></div>
+                              </div>
+                            ) : (
+                              <div className="text-xs text-amber-800 italic mt-1">
+                                Ο AI Agent σκάναρε το τραπεζικό statement (CSV) αλλά δεν εντόπισε καμία εξερχόμενη πληρωμή που να αντιστοιχεί στο ποσό αυτού του τιμολογίου.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     
-                    {/* Ολόκληρη η εικόνα εμφανίζεται κανονικά από κάτω */}
                     {msg.image_url && (
                       <div className="mt-5 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                         <img src={msg.image_url} alt="Source Document" className="w-full h-auto block" />
@@ -348,19 +380,8 @@ export default function Home() {
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#e2f1e9] via-[#e2f1e9]/90 to-transparent pt-10 pb-6 px-4">
           <div className="max-w-[700px] mx-auto">
             <form onSubmit={sendMessage} className="relative flex items-center bg-white rounded-full shadow-lg border border-gray-100">
-              <input 
-                type="text" 
-                value={input} 
-                onChange={(e) => setInput(e.target.value)} 
-                placeholder="Ρωτήστε το info4invo οτιδήποτε..." 
-                disabled={isLoading} 
-                className="w-full bg-transparent pl-6 pr-14 py-4 text-gray-800 text-[0.95rem] focus:outline-none disabled:opacity-50" 
-              />
-              <button 
-                type="submit" 
-                disabled={isLoading || !input.trim()} 
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-[34px] h-[34px] bg-gray-100 rounded-full flex items-center justify-center text-gray-400 hover:bg-[#1a7a4a] hover:text-white transition-all disabled:opacity-50"
-              >
+              <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ρωτήστε το info4invo οτιδήποτε..." disabled={isLoading} className="w-full bg-transparent pl-6 pr-14 py-4 text-gray-800 text-[0.95rem] focus:outline-none disabled:opacity-50" />
+              <button type="submit" disabled={isLoading || !input.trim()} className="absolute right-2 top-1/2 -translate-y-1/2 w-[34px] h-[34px] bg-gray-100 rounded-full flex items-center justify-center text-gray-400 hover:bg-[#1a7a4a] hover:text-white transition-all disabled:opacity-50">
                 <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
               </button>
             </form>
