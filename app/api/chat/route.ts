@@ -50,12 +50,16 @@ export async function POST(req: Request) {
           CRITICAL: You MUST reply in pure JSON format exactly like this:
           {
             "answer": "Your clear, detailed answer here.",
-            "zoom_x": 80,
-            "zoom_y": 85
+            "zoom_x": 85,
+            "zoom_y": 90
           }
           Look at the image and estimate where the answer is physically located.
           zoom_x is 0-100 (0 is left edge, 100 is right edge).
-          zoom_y is 0-100 (0 is top edge, 100 is bottom edge).` 
+          zoom_y is 0-100 (0 is top edge, 100 is bottom edge).
+          
+          TRAP WARNING: DO NOT target the text label (e.g., the word "Total" or "Tax"). 
+          You must target the EXACT DIGITS/DATA (e.g., "$115.00"). 
+          Numeric values are almost always on the right side of the invoice. Ensure your 'zoom_x' is shifted far enough to the right (usually between 75 and 95) to capture the numbers, not the words!` 
         },
         { role: 'user', content: userMessageContent }
       ],
