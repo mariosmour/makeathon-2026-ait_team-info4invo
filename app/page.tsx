@@ -2,15 +2,14 @@
 
 import { useState, useRef, useEffect } from 'react';
 
-// --- HELPER: Generate Calendar Days ---
+// --- HELPERS: Διαχείριση Ημερομηνιών ---
 const getDaysInMonth = (year: number, month: number) => {
   const date = new Date(year, month, 1);
   const days = [];
-  // Adjust to make Monday the first day of the week (Greek standard)
   let firstDay = date.getDay() - 1;
-  if (firstDay === -1) firstDay = 6; 
+  if (firstDay === -1) firstDay = 6; // Δευτέρα ως πρώτη μέρα
   
-  for (let i = 0; i < firstDay; i++) days.push(null); // Empty slots
+  for (let i = 0; i < firstDay; i++) days.push(null);
   while (date.getMonth() === month) {
     days.push(new Date(date));
     date.setDate(date.getDate() + 1);
@@ -18,17 +17,27 @@ const getDaysInMonth = (year: number, month: number) => {
   return days;
 };
 
+// Δημιουργία ενός string-key για το object mapping (π.χ. "2026-08-15")
+const getDateKey = (date: Date) => {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
 export default function Home() {
   const [messages, setMessages] = useState<{ role: 'user' | 'ai', text: string, image_url?: string }[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [currentFile, setCurrentFile] = useState<File | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
+  // State για την καταγραφή αρχείων ανά ημερομηνία (Demo Data included)
+  const [uploadedFilesByDate, setUploadedFilesByDate] = useState<{ [key: string]: { name: string, url?: string }[] }>({
+    // Μπορείς να ξεσχολιάσεις τα παρακάτω για να έχεις έτοιμα mock δεδομένα στο demo:
+    // "2026-09-14": [{ name: "Invoice_Vodafone_Sept.pdf" }, { name: "DEH_Electricity.png" }],
+    // "2026-09-18": [{ name: "Office_Supplies_Receipt.jpg" }]
+  });
+  
   // Calendar State
-  const currentDate = new Date(); // Or hardcode to September 2026 for the demo: new Date(2026, 8, 1)
-  const [currentMonth, setCurrentMonth] = useState(currentDate.getMonth());
-  const [currentYear, setCurrentYear] = useState(currentDate.getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(8); // Σεπτέμβριος (0-indexed, 8 = Σεπτέμβριος)
+  const [currentYear, setCurrentYear] = useState(2026); // Έτος από το mockup σου
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -43,11 +52,29 @@ export default function Home() {
   }, [messages]);
 
   // --- API & Upload Logic ---
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setCurrentFile(file);
-      saveToDatabase(file); // Auto-save on select to mimic the smooth mockup flow
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const filesArray = Array.from(e.target.files);
+      setIsLoading(true);
+      
+      setMessages((prev) => [...prev, { 
+        role: 'ai', 
+        text: `⏳ Έναρξη μαζικής επεξεργασίας για ${filesArray.length} αρχεία...` 
+      }]);
+
+      // Επεξεργασία όλων των αρχείων παράλληλα
+      try {
+        await Promise.all(filesArray.map(file => saveToDatabase(file)));
+        setMessages((prev) => [...prev, { 
+          role: 'ai', 
+          text: `✨ Όλα τα αρχεία (${filesArray.length}) ολοκληρώθηκαν και ταξινομήθηκαν στο ημερολόγιο!` 
+        }]);
+      } catch (error) {
+        console.error("Upload error:", error);
+      } finally {
+        setIsLoading(false);
+        if (fileInputRef.current) fileInputRef.current.value = ''; // Reset το input
+      }
     }
   };
 
@@ -61,9 +88,6 @@ export default function Home() {
   };
 
   const saveToDatabase = async (file: File) => {
-    setIsLoading(true);
-    setMessages((prev) => [...prev, { role: 'ai', text: `Αποθήκευση του ${file.name} στη βάση δεδομένων...` }]);
-
     try {
       const base64Image = await getBase64(file);
       const response = await fetch('/api/upload', {
@@ -74,14 +98,21 @@ export default function Home() {
 
       const data = await response.json();
       if (data.success) {
-        setMessages((prev) => [...prev, { role: 'ai', text: `✅ Το έγγραφο ${file.name} αναλύθηκε και αποθηκεύτηκε με ασφάλεια.` }]);
+        // Ανέβηκε επιτυχώς! Προσθήκη στο ημερολόγιο στην τρέχουσα ημερομηνία
+        const todayKey = getDateKey(new Date()); // Ή hardcoded για το demo αν θες συγκεκριμένη μέρα
+        
+        setUploadedFilesByDate(prev => ({
+          ...prev,
+          [todayKey]: [...(prev[todayKey] || []), { name: file.name, url: data.image_url }]
+        }));
+        
+        return true;
       } else {
         throw new Error(data.error);
       }
     } catch (error) {
-      setMessages((prev) => [...prev, { role: 'ai', text: "❌ Αποτυχία αποθήκευσης εγγράφου." }]);
-    } finally {
-      setIsLoading(false);
+      setMessages((prev) => [...prev, { role: 'ai', text: `❌ Αποτυχία αποθήκευσης για το αρχείο: ${file.name}` }]);
+      throw error;
     }
   };
 
@@ -109,13 +140,6 @@ export default function Home() {
     }
   };
 
-  const handleDayClick = (date: Date) => {
-    setSelectedDate(date);
-    // HACKATHON NOTE: Here is where you would fetch from Supabase!
-    // e.g. supabase.from('documents').select('*').eq('created_at', date)
-    console.log("Fetching documents for:", date.toISOString());
-  };
-
   return (
     <main className="flex h-screen w-full bg-gradient-to-br from-[#f0f9f4] to-[#e2f1e9] text-[#2d3748] font-sans overflow-hidden">
       
@@ -131,25 +155,25 @@ export default function Home() {
           </button>
         </div>
 
-        <div className="p-4 flex-1 overflow-y-auto">
+        <div className="p-4 flex-1 overflow-y-auto space-y-4">
           {/* New Chat Button */}
-          <button onClick={() => { setMessages([]); setCurrentFile(null); }} className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-[#d0e8da] rounded-xl hover:border-[#1a7a4a] hover:bg-[#f4fbf7] transition-all text-sm font-medium text-gray-700 shadow-sm mb-4">
+          <button onClick={() => { setMessages([]); }} className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-[#d0e8da] rounded-xl hover:border-[#1a7a4a] hover:bg-[#f4fbf7] transition-all text-sm font-medium text-gray-700 shadow-sm">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"></path></svg>
             Νέα Συνομιλία
           </button>
 
           {/* Search Bar */}
-          <div className="relative mb-6">
+          <div className="relative">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
             <input type="text" placeholder="Αναζήτηση συνομιλιών..." className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#1a7a4a]" />
           </div>
 
           {/* Calendar Widget */}
-          <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm mb-6">
+          <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <div className="font-bold text-sm text-gray-800">{monthNames[currentMonth]}</div>
-                <div className="text-[0.65rem] text-gray-400 font-medium tracking-wide uppercase">Ετος {currentYear}</div>
+                <div className="text-[0.65rem] text-gray-400 font-medium tracking-wide uppercase">Έτος {currentYear}</div>
               </div>
               <div className="flex gap-1">
                 <button onClick={() => setCurrentMonth(prev => prev === 0 ? 11 : prev - 1)} className="p-1.5 hover:bg-gray-100 rounded text-gray-500"><svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"></path></svg></button>
@@ -162,32 +186,67 @@ export default function Home() {
             </div>
             
             <div className="grid grid-cols-7 gap-1 text-center">
-              {days.map((date, i) => (
-                <div key={i} className="aspect-square flex items-center justify-center">
-                  {date && (
+              {days.map((date, i) => {
+                if (!date) return <div key={i} className="aspect-square" />;
+                
+                const dateKey = getDateKey(date);
+                const fileCount = uploadedFilesByDate[dateKey]?.length || 0;
+                const isSelected = selectedDate?.toDateString() === date.toDateString();
+
+                return (
+                  <div key={i} className="aspect-square flex items-center justify-center relative">
                     <button 
-                      onClick={() => handleDayClick(date)}
-                      className={`w-7 h-7 flex items-center justify-center rounded-full text-xs transition-all
-                        ${selectedDate?.toDateString() === date.toDateString() ? 'bg-[#1a7a4a] text-white font-bold shadow-md' : 'text-gray-600 hover:bg-gray-100'}
-                        ${date.toDateString() === new Date().toDateString() && selectedDate?.toDateString() !== date.toDateString() ? 'border border-[#1a7a4a] text-[#1a7a4a] font-bold' : ''}
+                      onClick={() => setSelectedDate(date)}
+                      className={`w-7 h-7 flex flex-col items-center justify-center rounded-full text-xs transition-all relative
+                        ${isSelected ? 'bg-[#1a7a4a] text-white font-bold shadow-md' : 'text-gray-600 hover:bg-gray-100'}
                       `}
                     >
-                      {date.getDate()}
+                      <span>{date.getDate()}</span>
+                      
+                      {/* Πράσινο Badge αν υπάρχουν αρχεία εκείνη τη μέρα */}
+                      {fileCount > 0 && !isSelected && (
+                        <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-[#22a060] text-white rounded-full text-[0.55rem] font-bold flex items-center justify-center border border-white">
+                          {fileCount}
+                        </span>
+                      )}
                     </button>
-                  )}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          <div className="text-xs text-gray-400 text-center mt-8">Δεν βρέθηκαν συνομιλίες/έγγραφα.</div>
+          {/* --- ΔΥΝΑΜΙΚΗ ΛΙΣΤΑ ΑΡΧΕΙΩΝ ΗΜΕΡΑΣ --- */}
+          {selectedDate && (
+            <div className="bg-white/60 border border-[#d0e8da] rounded-2xl p-3 shadow-sm animate-fadeIn">
+              <div className="text-[0.7rem] font-bold text-[#1a7a4a] uppercase tracking-wider mb-2">
+                Έγγραφα: {selectedDate.getDate()} {monthNames[selectedDate.getMonth()]}
+              </div>
+              {uploadedFilesByDate[getDateKey(selectedDate)]?.length > 0 ? (
+                <div className="space-y-1.5 max-h-[150px] overflow-y-auto">
+                  {uploadedFilesByDate[getDateKey(selectedDate)].map((file, idx) => (
+                    <div key={idx} className="flex items-center gap-2 text-xs text-gray-700 bg-white border border-gray-100 rounded-lg p-2 truncate">
+                      <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                      <span className="truncate flex-1">{file.name}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[0.75rem] text-gray-400 italic text-center py-2">Κανένα τιμολόγιο αυτή τη μέρα.</div>
+              )}
+            </div>
+          )}
+
+          {Object.keys(uploadedFilesByDate).length === 0 && (
+            <div className="text-xs text-gray-400 text-center pt-4">Δεν βρέθηκαν συνομιλίες/έγγραφα.</div>
+          )}
         </div>
       </div>
 
       {/* --- MAIN CONTENT AREA --- */}
       <div className="flex-1 flex flex-col relative min-w-0">
         
-        {/* Top bar (only visible if sidebar is closed) */}
+        {/* Top bar (κουμπί sidebar αν είναι κλειστό) */}
         {!isSidebarOpen && (
           <div className="absolute top-4 left-4 z-10">
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 bg-white/80 backdrop-blur-sm border border-[#d0e8da] rounded-lg shadow-sm text-gray-600 hover:text-[#1a7a4a] transition-colors">
@@ -200,7 +259,7 @@ export default function Home() {
           
           {/* HERO SECTION (Upload State) */}
           {messages.length === 0 ? (
-            <div className="max-w-[700px] w-full flex flex-col items-center justify-center mt-10 lg:mt-24">
+            <div className="max-w-[700px] w-full flex flex-col items-center justify-center mt-10 lg:mt-24 animate-fadeIn">
               <h1 className="text-[2.8rem] font-bold tracking-tight text-gray-800 mb-4">
                 info<span className="bg-[#1a7a4a] text-white px-2 py-0.5 rounded-lg mx-0.5">4</span>invo
               </h1>
@@ -208,18 +267,25 @@ export default function Home() {
                 Ανεβάστε το τιμολόγιο. Όλα τα δεδομένα σας αναλύονται και αποθηκεύονται με ασφάλεια στη βάση δεδομένων.
               </p>
 
-              {/* Drag & Drop Upload Box */}
-              <input type="file" ref={fileInputRef} className="hidden" accept=".pdf,.png,.jpg,.jpeg" onChange={handleFileUpload} />
+              {/* Drag & Drop Upload Box - Προσθήκη MULTIPLE */}
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept=".pdf,.png,.jpg,.jpeg" 
+                multiple 
+                onChange={handleFileUpload} 
+              />
               <button 
                 onClick={() => fileInputRef.current?.click()} 
-                className="w-full max-w-[600px] aspect-[2.5/1] border-2 border-dashed border-gray-300 rounded-[2rem] bg-white/50 hover:bg-white hover:border-[#1a7a4a] hover:shadow-lg transition-all flex flex-col items-center justify-center gap-3 group"
+                className="w-full max-w-[600px] aspect-[2.5/1] border-2 border-dashed border-gray-300 rounded-[2rem] bg-white/50 hover:bg-white hover:border-[#1a7a4a] hover:shadow-lg transition-all flex flex-col items-center justify-center gap-3 group shadow-sm"
               >
                 <div className="text-gray-400 group-hover:text-[#1a7a4a] transition-colors">
                   <svg width="40" height="40" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
                 </div>
                 <div>
                   <div className="font-semibold text-gray-700 text-lg">Επιλέξτε ή σύρετε το τιμολόγιο εδώ</div>
-                  <div className="text-sm text-gray-400 mt-1 uppercase tracking-wider">PDF, PNG, JPG</div>
+                  <div className="text-sm text-gray-400 mt-1 uppercase tracking-wider">Μπορείτε να επιλέξετε πολλά αρχεία (PDF, PNG, JPG)</div>
                 </div>
               </button>
             </div>
@@ -234,7 +300,6 @@ export default function Home() {
                       ? 'bg-white border border-gray-100 text-gray-800' 
                       : 'bg-transparent text-gray-800'
                   }`}>
-                    {/* Bot Logo Header */}
                     {msg.role === 'ai' && (
                       <div className="flex items-center gap-2 mb-3">
                         <div className="w-[24px] h-[24px] bg-[#1a7a4a] rounded flex items-center justify-center">
@@ -246,7 +311,6 @@ export default function Home() {
                     
                     <p className="whitespace-pre-wrap">{msg.text}</p>
                     
-                    {/* Render Image Response */}
                     {msg.image_url && (
                       <div className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                         <img src={msg.image_url} alt="Source Document" className="w-full h-auto block" />
