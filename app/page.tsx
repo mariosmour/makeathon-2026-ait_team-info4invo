@@ -17,22 +17,21 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
       try {
         const { data }: { data: any } = await Tesseract.recognize(imageUrl, 'ell+eng');
         
-        // FUZZY MATCHING: Remove spaces, commas, dots, and symbols to compare pure numbers/letters
-        const clean = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/gi, '');
+        // SAFETY FIX: If data.words is undefined for any reason, default to an empty array
+        const wordsArray = data?.words || []; 
+        
+        const clean = (str: string) => str?.toLowerCase().replace(/[^a-z0-9]/gi, '') || '';
         const targetClean = clean(highlightText);
 
-        const foundWord = data.words.find((w: any) => {
+        const foundWord = wordsArray.find((w: any) => {
           const wordClean = clean(w.text);
-          // Match if they share the same core letters/numbers
           return wordClean.length > 1 && (wordClean.includes(targetClean) || targetClean.includes(wordClean));
         });
         
         if (foundWord) {
           setBox(foundWord.bbox);
         } else {
-          // If it fails, log exactly what Tesseract saw to the console so we can debug!
           console.log(`❌ Couldn't find exact match for: "${highlightText}"`);
-          console.log("Here is what Tesseract actually read:", data.words.map((w:any) => w.text).join(' '));
         }
       } catch (error) {
         console.error("🚨 Tesseract Error:", error);
