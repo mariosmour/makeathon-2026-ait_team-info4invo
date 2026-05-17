@@ -37,7 +37,8 @@ interface ChatSession {
   title: string;
   date: Date;
   messages: ChatMessage[];
-  isFile: boolean; // Για να ξεχωρίζει το ημερολόγιο τα έγγραφα από τα απλά chat
+  isFile: boolean; 
+  fileNames?: string[]; // 🚀 ΝΕΟ: Αποθηκεύει τα ονόματα όλων των αρχείων του μαζικού Upload!
 }
 
 export default function Home() {
@@ -72,16 +73,17 @@ export default function Home() {
       const filesArray = Array.from(e.target.files);
       setIsLoading(true);
       
-      // Δημιουργία νέας συνεδρίας (session) για το αρχείο
       const newSessionId = `doc_${Date.now()}`;
       const initialMsg: ChatMessage = { role: 'ai', text: `⏳ Έναρξη ανάλυσης για ${filesArray.length} αρχεία...` };
       
+      // 🚀 Δημιουργία Session με όλα τα ονόματα των αρχείων για το Ημερολόγιο
       const newSession: ChatSession = {
         id: newSessionId,
         title: `📄 ${filesArray[0].name} ${filesArray.length > 1 ? `(+${filesArray.length - 1})` : ''}`,
         date: new Date(),
         messages: [initialMsg],
-        isFile: true
+        isFile: true,
+        fileNames: filesArray.map(f => f.name) // Σώζουμε τα ονόματα ξεχωριστά
       };
 
       setHistory(prev => [newSession, ...prev]);
@@ -91,7 +93,7 @@ export default function Home() {
       try {
         await Promise.all(filesArray.map(file => saveToDatabase(file)));
         
-        const successMsg: ChatMessage = { role: 'ai', text: `✨ Όλα τα αρχεία (${filesArray.length}) αναλύθηκαν! Πώς μπορώ να βοηθήσω;` };
+        const successMsg: ChatMessage = { role: 'ai', text: `✨ Όλα τα αρχεία (${filesArray.length}) αναλύθηκαν και αποθηκεύτηκαν! Πώς μπορώ να βοηθήσω;` };
         setMessages(prev => [...prev, successMsg]);
         setHistory(prev => prev.map(s => s.id === newSessionId ? { ...s, messages: [...s.messages, successMsg] } : s));
       } catch (error) {
@@ -142,7 +144,6 @@ export default function Home() {
     let currentId = activeSessionId;
     let nextMsgs = [...messages, userMsgObj];
 
-    // Αν δεν υπάρχει ενεργή συνομιλία, δημιούργησε μία (Γενικό Chat)
     if (!currentId) {
       currentId = `chat_${Date.now()}`;
       setActiveSessionId(currentId);
@@ -190,14 +191,26 @@ export default function Home() {
     }
   };
 
-  // 🧮 Υπολογισμός Εγγράφων ανά Ημερομηνία για το Ημερολόγιο
+  // 🧮 1. Διορθωμένος Υπολογισμός Εγγράφων ανά Ημερομηνία (Μετράει ΚΑΘΕ αρχείο χωριστά)
   const fileCountsByDate: { [key: string]: number } = {};
   history.forEach(session => {
-    if (session.isFile) {
+    if (session.isFile && session.fileNames) {
       const key = getDateKey(session.date);
-      fileCountsByDate[key] = (fileCountsByDate[key] || 0) + 1;
+      // Αντί για 1, προσθέτουμε τον ακριβή αριθμό των αρχείων που ανέβηκαν!
+      fileCountsByDate[key] = (fileCountsByDate[key] || 0) + session.fileNames.length;
     }
   });
+
+  // 🔍 2. Φιλτράρισμα Ιστορικού βάσει της επιλεγμένης ημέρας
+  const filteredHistory = history.filter(session => {
+    if (!selectedDate) return true;
+    return getDateKey(session.date) === getDateKey(selectedDate);
+  });
+
+  // 📄 3. Συλλογή των ονομάτων αρχείων για τη συγκεκριμένη (επιλεγμένη) μέρα
+  const selectedDateFiles = filteredHistory
+    .filter(s => s.isFile && s.fileNames)
+    .flatMap(s => s.fileNames || []);
 
   return (
     <main className="flex h-screen w-full bg-gradient-to-br from-[#f0f9f4] to-[#e2f1e9] text-[#2d3748] font-sans overflow-hidden">
@@ -247,9 +260,15 @@ export default function Home() {
                 return (
                   <div key={i} className="aspect-square flex items-center justify-center relative">
                     <button 
-                      onClick={() => setSelectedDate(date)}
+                      onClick={() => {
+                        // Αν έχει αρχεία, με το κλικ διαλέγεις/ξε-διαλέγεις τη μέρα!
+                        if (fileCount > 0) {
+                          setSelectedDate(isSelected ? null : date);
+                        }
+                      }}
                       className={`w-7 h-7 flex flex-col items-center justify-center rounded-full text-xs transition-all relative
                         ${isSelected ? 'bg-[#1a7a4a] text-white font-bold shadow-md' : 'text-gray-600 hover:bg-gray-100'}
+                        ${fileCount > 0 ? 'cursor-pointer' : 'cursor-default'}
                       `}
                     >
                       <span>{date.getDate()}</span>
@@ -265,17 +284,44 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 🚀 ΙΣΤΟΡΙΚΟ ΣΥΝΟΜΙΛΙΩΝ */}
+          {/* 🚀 ΝΕΟ: Εμφάνιση συγκεκριμένων αρχείων αν έχει επιλεχθεί μέρα */}
+          {selectedDate && (
+            <div className="bg-[#f4fbf7] border border-[#1a7a4a]/20 rounded-xl p-3 shadow-sm animate-fadeIn flex flex-col gap-2 shrink-0">
+              <div className="flex items-center justify-between border-b border-[#1a7a4a]/10 pb-2">
+                <span className="text-[0.7rem] font-bold text-[#1a7a4a] uppercase tracking-wider">
+                  📅 {selectedDate.getDate()} {monthNames[selectedDate.getMonth()]}
+                </span>
+                <button onClick={() => setSelectedDate(null)} className="text-[#1a7a4a] hover:bg-[#d0e8da] rounded p-0.5 transition-colors" title="Εκκαθάριση φίλτρου">
+                  <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+              </div>
+              
+              <div className="max-h-[120px] overflow-y-auto space-y-1 mt-1 pr-1">
+                {selectedDateFiles.length > 0 ? (
+                  selectedDateFiles.map((fname, idx) => (
+                    <div key={idx} className="flex items-center gap-2 text-[0.7rem] text-gray-700 bg-white border border-gray-100 rounded-lg p-1.5 truncate shadow-sm">
+                      <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" className="text-[#1a7a4a] shrink-0"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                      <span className="truncate flex-1 font-medium">{fname}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-[0.7rem] text-gray-500 italic text-center py-2">Μόνο συνομιλίες αυτή τη μέρα.</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 🚀 ΙΣΤΟΡΙΚΟ ΣΥΝΟΜΙΛΙΩΝ (Φιλτραρισμένο) */}
           <div className="flex-1 flex flex-col pt-2 border-t border-gray-100 min-h-0">
             <div className="text-[0.7rem] font-bold text-[#1a7a4a] uppercase tracking-wider mb-3 px-1 shrink-0">
-              Ιστορικό Συνομιλιών
+              {selectedDate ? 'Συνομιλιες Ημερας' : 'Ιστορικο Συνομιλιων'}
             </div>
             
             <div className="overflow-y-auto space-y-1 pr-1">
-              {history.length === 0 ? (
+              {filteredHistory.length === 0 ? (
                 <div className="text-[0.75rem] text-gray-400 italic text-center py-4">Δεν υπάρχουν συνομιλίες.</div>
               ) : (
-                history.map(session => (
+                filteredHistory.map(session => (
                   <button 
                     key={session.id}
                     onClick={() => { setActiveSessionId(session.id); setMessages(session.messages); }}
