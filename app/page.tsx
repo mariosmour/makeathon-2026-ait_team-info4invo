@@ -7,58 +7,72 @@ import Tesseract from 'tesseract.js';
 const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highlightText: string }) => {
   const [box, setBox] = useState<{ x0: number, y0: number, x1: number, y1: number } | null>(null);
   const [isScanning, setIsScanning] = useState(true);
+  const [imageLoaded, setImageLoaded] = useState(false); // Make sure image has dimensions
   const imageRef = useRef<HTMLImageElement>(null);
 
-  // THE CACHE BUSTER: We add a random timestamp to the end of the URL.
-  // This forces the browser to fetch a fresh, CORS-approved copy from Supabase!
-  const corsBypassUrl = `${imageUrl}?t=${Date.now()}`;
+  useEffect(() => {
+    let isMounted = true;
 
-  const scanImage = async () => {
-    if (!imageRef.current) return;
-    setIsScanning(true);
-    
-    try {
-      const { data }: { data: any } = await Tesseract.recognize(imageRef.current, 'ell+eng');
-      const wordsArray = data?.words || []; 
-      
-      const targetNumbers = highlightText.replace(/[^0-9]/g, ''); 
-      const searchChunk = targetNumbers.length > 4 ? targetNumbers.substring(0, 4) : targetNumbers;
+    const runScan = async () => {
+      try {
+        // 1. Give the browser a tiny delay to breathe
+        await new Promise(res => setTimeout(res, 500));
+        
+        // 2. Fetch the image directly via Tesseract using our Cache Buster
+        const bypassUrl = `${imageUrl}?t=${Date.now()}`;
+        
+        // 3. Scan ONLY with English ('eng') since Greek can sometimes scramble numbers/dollar signs
+        const { data }: { data: any } = await Tesseract.recognize(bypassUrl, 'eng');
+        
+        if (!isMounted) return;
 
-      const foundWord = wordsArray.find((w: any) => {
-        const wordNumbers = w.text.replace(/[^0-9]/g, '');
-        return wordNumbers.length >= 2 && (wordNumbers.includes(searchChunk) || searchChunk.includes(wordNumbers));
-      });
-      
-      if (foundWord) {
-        setBox(foundWord.bbox);
-      } else {
-        console.log(`❌ Couldn't find: "${highlightText}" (Numbers only: ${targetNumbers})`);
+        const wordsArray = data?.words || []; 
+        const targetNumbers = highlightText.replace(/[^0-9]/g, ''); 
+        const searchChunk = targetNumbers.length > 4 ? targetNumbers.substring(0, 4) : targetNumbers;
+
+        const foundWord = wordsArray.find((w: any) => {
+          const wordNumbers = w.text.replace(/[^0-9]/g, '');
+          return wordNumbers.length >= 2 && (wordNumbers.includes(searchChunk) || searchChunk.includes(wordNumbers));
+        });
+        
+        if (foundWord) {
+          setBox(foundWord.bbox);
+        } else {
+          console.log(`❌ Couldn't find: "${highlightText}" (Numbers only: ${targetNumbers})`);
+          console.log("What Tesseract saw:", wordsArray.map((w:any) => w.text).join(' '));
+        }
+      } catch (error) {
+        console.error("🚨 Tesseract Error:", error);
+      } finally {
+        if (isMounted) setIsScanning(false);
       }
-    } catch (error) {
-      console.error("🚨 Tesseract Error:", error);
-    }
-    setIsScanning(false);
-  };
+    };
+
+    runScan();
+
+    // Cleanup function to prevent memory leaks if you close the chat early
+    return () => { isMounted = false; };
+  }, [imageUrl, highlightText]); // ONLY runs once when these variables are set!
 
   return (
     <div className="relative mt-3 border border-[#d0e8da] rounded-xl overflow-hidden bg-gray-50">
       {isScanning && (
-        <div className="absolute inset-0 bg-white/70 flex items-center justify-center z-10 backdrop-blur-sm text-sm font-medium text-[#1a7a4a] animate-pulse">
-          Scanning document for "{highlightText}"...
+        <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10 backdrop-blur-sm text-sm font-medium text-[#1a7a4a] animate-pulse">
+          Scanning document... (This takes a few seconds)
         </div>
       )}
       
-      {/* Notice we are using corsBypassUrl here now! */}
+      {/* Simple, clean image tag. No more looping! */}
       <img 
         ref={imageRef} 
-        src={corsBypassUrl} 
+        src={imageUrl} 
         alt="Source Document" 
-        className="w-full h-auto block" 
-        crossOrigin="anonymous" 
-        onLoad={scanImage} 
+        className="w-full h-auto block"
+        onLoad={() => setImageLoaded(true)} 
       />
       
-      {box && imageRef.current && (
+      {/* Only draw the box if the scan succeeded AND the image has loaded its dimensions */}
+      {(box && imageLoaded && imageRef.current) && (
         <div 
           style={{
             position: 'absolute',
