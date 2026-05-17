@@ -7,7 +7,7 @@ const getDaysInMonth = (year: number, month: number) => {
   const date = new Date(year, month, 1);
   const days = [];
   let firstDay = date.getDay() - 1;
-  if (firstDay === -1) firstDay = 6; // Δευτέρα ως πρώτη μέρα
+  if (firstDay === -1) firstDay = 6;
   
   for (let i = 0; i < firstDay; i++) days.push(null);
   while (date.getMonth() === month) {
@@ -17,24 +17,42 @@ const getDaysInMonth = (year: number, month: number) => {
   return days;
 };
 
-// Δημιουργία ενός string-key για το object mapping (π.χ. "2026-08-15")
 const getDateKey = (date: Date) => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 
+// --- TYPES ---
+interface ChatMessage {
+  role: 'user' | 'ai';
+  text: string;
+  image_url?: string;
+  box_left?: number;
+  box_top?: number;
+  box_width?: number;
+  box_height?: number;
+}
+
+interface ChatSession {
+  id: string;
+  title: string;
+  date: Date;
+  messages: ChatMessage[];
+  isFile: boolean; // Για να ξεχωρίζει το ημερολόγιο τα έγγραφα από τα απλά chat
+}
+
 export default function Home() {
-  // Προστέθηκαν τα zoom_x και zoom_y στο state των μηνυμάτων
-  const [messages, setMessages] = useState<{ role: 'user' | 'ai', text: string, image_url?: string, zoom_x?: number, zoom_y?: number }[]>([]);
+  // 🚀 STATE ΙΣΤΟΡΙΚΟΥ ΚΑΙ ΜΗΝΥΜΑΤΩΝ
+  const [history, setHistory] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
-  // State για την καταγραφή αρχείων ανά ημερομηνία
-  const [uploadedFilesByDate, setUploadedFilesByDate] = useState<{ [key: string]: { name: string, url?: string }[] }>({});
-  
   // Calendar State
-  const [currentMonth, setCurrentMonth] = useState(8); // Σεπτέμβριος (0-indexed)
-  const [currentYear, setCurrentYear] = useState(2026);
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth()); 
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -54,17 +72,28 @@ export default function Home() {
       const filesArray = Array.from(e.target.files);
       setIsLoading(true);
       
-      setMessages((prev) => [...prev, { 
-        role: 'ai', 
-        text: `⏳ Έναρξη μαζικής επεξεργασίας για ${filesArray.length} αρχεία...` 
-      }]);
+      // Δημιουργία νέας συνεδρίας (session) για το αρχείο
+      const newSessionId = `doc_${Date.now()}`;
+      const initialMsg: ChatMessage = { role: 'ai', text: `⏳ Έναρξη ανάλυσης για ${filesArray.length} αρχεία...` };
+      
+      const newSession: ChatSession = {
+        id: newSessionId,
+        title: `📄 ${filesArray[0].name} ${filesArray.length > 1 ? `(+${filesArray.length - 1})` : ''}`,
+        date: new Date(),
+        messages: [initialMsg],
+        isFile: true
+      };
+
+      setHistory(prev => [newSession, ...prev]);
+      setActiveSessionId(newSessionId);
+      setMessages([initialMsg]);
 
       try {
         await Promise.all(filesArray.map(file => saveToDatabase(file)));
-        setMessages((prev) => [...prev, { 
-          role: 'ai', 
-          text: `✨ Όλα τα αρχεία (${filesArray.length}) αναλύθηκαν και ταξινομήθηκαν στο ημερολόγιο!` 
-        }]);
+        
+        const successMsg: ChatMessage = { role: 'ai', text: `✨ Όλα τα αρχεία (${filesArray.length}) αναλύθηκαν! Πώς μπορώ να βοηθήσω;` };
+        setMessages(prev => [...prev, successMsg]);
+        setHistory(prev => prev.map(s => s.id === newSessionId ? { ...s, messages: [...s.messages, successMsg] } : s));
       } catch (error) {
         console.error("Upload error:", error);
       } finally {
@@ -93,18 +122,9 @@ export default function Home() {
       });
 
       const data = await response.json();
-      if (data.success) {
-        const todayKey = getDateKey(new Date()); 
-        setUploadedFilesByDate(prev => ({
-          ...prev,
-          [todayKey]: [...(prev[todayKey] || []), { name: file.name, url: data.image_url }]
-        }));
-        return true;
-      } else {
-        throw new Error(data.error);
-      }
+      if (!data.success) throw new Error(data.error);
+      return true;
     } catch (error) {
-      setMessages((prev) => [...prev, { role: 'ai', text: `❌ Αποτυχία αποθήκευσης για το αρχείο: ${file.name}` }]);
       throw error;
     }
   };
@@ -113,39 +133,77 @@ export default function Home() {
     e.preventDefault();
     if (!input.trim()) return;
 
-    const userMsg = input;
-    setMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
+    const userMsgText = input;
+    const userMsgObj: ChatMessage = { role: 'user', text: userMsgText };
+    
     setInput('');
     setIsLoading(true);
+
+    let currentId = activeSessionId;
+    let nextMsgs = [...messages, userMsgObj];
+
+    // Αν δεν υπάρχει ενεργή συνομιλία, δημιούργησε μία (Γενικό Chat)
+    if (!currentId) {
+      currentId = `chat_${Date.now()}`;
+      setActiveSessionId(currentId);
+      const newSession: ChatSession = {
+        id: currentId,
+        title: `💬 ${userMsgText.slice(0, 22)}${userMsgText.length > 22 ? '...' : ''}`,
+        date: new Date(),
+        messages: nextMsgs,
+        isFile: false
+      };
+      setHistory(prev => [newSession, ...prev]);
+      setMessages(nextMsgs);
+    } else {
+      setMessages(nextMsgs);
+      setHistory(prev => prev.map(s => s.id === currentId ? { ...s, messages: nextMsgs } : s));
+    }
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: userMsg }),
+        body: JSON.stringify({ question: userMsgText }),
       });
       const data = await response.json();
       
-      // Αποθηκεύουμε και τις συντεταγμένες του zoom στο state
-      setMessages((prev) => [...prev, { 
+      const aiMsgObj: ChatMessage = { 
         role: 'ai', 
         text: data.answer || data.error || "Προέκυψε κάποιο σφάλμα.", 
         image_url: data.image_url,
-        zoom_x: data.zoom_x,
-        zoom_y: data.zoom_y
-      }]);
+        box_left: data.box_left,
+        box_top: data.box_top,
+        box_width: data.box_width,
+        box_height: data.box_height
+      };
+
+      const finalMsgs = [...nextMsgs, aiMsgObj];
+      setMessages(finalMsgs);
+      setHistory(prev => prev.map(s => s.id === currentId ? { ...s, messages: finalMsgs } : s));
     } catch (error) {
-      setMessages((prev) => [...prev, { role: 'ai', text: "Σφάλμα σύνδεσης." }]);
+      const errorMsg: ChatMessage = { role: 'ai', text: "Σφάλμα σύνδεσης." };
+      setMessages(prev => [...prev, errorMsg]);
+      setHistory(prev => prev.map(s => s.id === currentId ? { ...s, messages: [...s.messages, errorMsg] } : s));
     } finally {
       setIsLoading(false);
     }
   };
 
+  // 🧮 Υπολογισμός Εγγράφων ανά Ημερομηνία για το Ημερολόγιο
+  const fileCountsByDate: { [key: string]: number } = {};
+  history.forEach(session => {
+    if (session.isFile) {
+      const key = getDateKey(session.date);
+      fileCountsByDate[key] = (fileCountsByDate[key] || 0) + 1;
+    }
+  });
+
   return (
     <main className="flex h-screen w-full bg-gradient-to-br from-[#f0f9f4] to-[#e2f1e9] text-[#2d3748] font-sans overflow-hidden">
       
       {/* --- SIDEBAR --- */}
-      <div className={`${isSidebarOpen ? 'w-[300px]' : 'w-0'} transition-all duration-300 ease-in-out bg-white/80 backdrop-blur-md border-r border-[#d0e8da] flex flex-col overflow-hidden shrink-0 shadow-sm`}>
+      <div className={`${isSidebarOpen ? 'w-[300px]' : 'w-0'} transition-all duration-300 ease-in-out bg-white/80 backdrop-blur-md border-r border-[#d0e8da] flex flex-col overflow-hidden shrink-0 shadow-sm z-20`}>
         <div className="flex items-center justify-between p-4 border-b border-gray-100/50">
           <div className="text-[1.1rem] font-bold tracking-tight text-gray-800">
             info<span className="bg-[#1a7a4a] text-white px-1 py-0.5 rounded-md mx-0.5">4</span>invo
@@ -155,18 +213,14 @@ export default function Home() {
           </button>
         </div>
 
-        <div className="p-4 flex-1 overflow-y-auto space-y-4">
-          <button onClick={() => { setMessages([]); }} className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-[#d0e8da] rounded-xl hover:border-[#1a7a4a] hover:bg-[#f4fbf7] transition-all text-sm font-medium text-gray-700 shadow-sm">
+        <div className="p-4 flex-1 overflow-y-auto flex flex-col gap-4">
+          <button onClick={() => { setActiveSessionId(null); setMessages([]); }} className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-[#d0e8da] rounded-xl hover:border-[#1a7a4a] hover:bg-[#f4fbf7] transition-all text-sm font-medium text-gray-700 shadow-sm shrink-0">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"></path></svg>
             Νέα Συνομιλία
           </button>
 
-          <div className="relative">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-            <input type="text" placeholder="Αναζήτηση συνομιλιών..." className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#1a7a4a]" />
-          </div>
-
-          <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
+          {/* Calendar Widget */}
+          <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm shrink-0">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <div className="font-bold text-sm text-gray-800">{monthNames[currentMonth]}</div>
@@ -187,7 +241,7 @@ export default function Home() {
                 if (!date) return <div key={i} className="aspect-square" />;
                 
                 const dateKey = getDateKey(date);
-                const fileCount = uploadedFilesByDate[dateKey]?.length || 0;
+                const fileCount = fileCountsByDate[dateKey] || 0;
                 const isSelected = selectedDate?.toDateString() === date.toDateString();
 
                 return (
@@ -199,7 +253,6 @@ export default function Home() {
                       `}
                     >
                       <span>{date.getDate()}</span>
-                      
                       {fileCount > 0 && !isSelected && (
                         <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-[#22a060] text-white rounded-full text-[0.55rem] font-bold flex items-center justify-center border border-white">
                           {fileCount}
@@ -212,25 +265,35 @@ export default function Home() {
             </div>
           </div>
 
-          {selectedDate && (
-            <div className="bg-white/60 border border-[#d0e8da] rounded-2xl p-3 shadow-sm animate-fadeIn">
-              <div className="text-[0.7rem] font-bold text-[#1a7a4a] uppercase tracking-wider mb-2">
-                Έγγραφα: {selectedDate.getDate()} {monthNames[selectedDate.getMonth()]}
-              </div>
-              {uploadedFilesByDate[getDateKey(selectedDate)]?.length > 0 ? (
-                <div className="space-y-1.5 max-h-[150px] overflow-y-auto">
-                  {uploadedFilesByDate[getDateKey(selectedDate)].map((file, idx) => (
-                    <div key={idx} className="flex items-center gap-2 text-xs text-gray-700 bg-white border border-gray-100 rounded-lg p-2 truncate">
-                      <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                      <span className="truncate flex-1">{file.name}</span>
-                    </div>
-                  ))}
-                </div>
+          {/* 🚀 ΙΣΤΟΡΙΚΟ ΣΥΝΟΜΙΛΙΩΝ */}
+          <div className="flex-1 flex flex-col pt-2 border-t border-gray-100 min-h-0">
+            <div className="text-[0.7rem] font-bold text-[#1a7a4a] uppercase tracking-wider mb-3 px-1 shrink-0">
+              Ιστορικό Συνομιλιών
+            </div>
+            
+            <div className="overflow-y-auto space-y-1 pr-1">
+              {history.length === 0 ? (
+                <div className="text-[0.75rem] text-gray-400 italic text-center py-4">Δεν υπάρχουν συνομιλίες.</div>
               ) : (
-                <div className="text-[0.75rem] text-gray-400 italic text-center py-2">Κανένα τιμολόγιο αυτή τη μέρα.</div>
+                history.map(session => (
+                  <button 
+                    key={session.id}
+                    onClick={() => { setActiveSessionId(session.id); setMessages(session.messages); }}
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-all text-left ${
+                      activeSessionId === session.id 
+                        ? 'bg-white border border-[#d0e8da] text-[#1a7a4a] font-bold shadow-sm' 
+                        : 'text-gray-600 hover:bg-gray-50 border border-transparent'
+                    }`}
+                  >
+                    <svg className="shrink-0" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+                    </svg>
+                    <span className="truncate flex-1">{session.title}</span>
+                  </button>
+                ))
               )}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
@@ -282,11 +345,12 @@ export default function Home() {
             <div className="max-w-[750px] w-full space-y-6">
               {messages.map((msg, index) => (
                 <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] rounded-2xl p-5 shadow-sm text-[0.95rem] leading-relaxed ${
+                  <div className={`max-w-[90%] rounded-2xl p-5 shadow-sm text-[0.95rem] leading-relaxed ${
                     msg.role === 'user' 
                       ? 'bg-white border border-gray-100 text-gray-800' 
                       : 'bg-transparent text-gray-800'
                   }`}>
+                    
                     {msg.role === 'ai' && (
                       <div className="flex items-center gap-2 mb-3">
                         <div className="w-[24px] h-[24px] bg-[#1a7a4a] rounded flex items-center justify-center">
@@ -296,37 +360,33 @@ export default function Home() {
                       </div>
                     )}
                     
-                    {/* ZOOM BOX ΚΑΙ ΚΕΙΜΕΝΟ ΑΠΑΝΤΗΣΗΣ */}
-                    <div className={`${msg.role === 'ai' ? 'flex flex-col sm:flex-row items-start gap-5' : ''}`}>
-                      
-                      {/* Zoom Box Component */}
-                      {msg.role === 'ai' && msg.image_url && msg.zoom_x !== undefined && msg.zoom_y !== undefined && (
-                        <div className="flex flex-col items-center shrink-0">
-                          <div 
-                            // 1. CHANGED SHAPE: Made it a wide rectangle (w-48) instead of a square
-                            className="w-48 h-20 rounded-xl border-2 border-[#1a7a4a]/20 shadow-md bg-white overflow-hidden"
-                            style={{
-                              backgroundImage: `url(${msg.image_url})`,
-                              // 2. ZOOMED OUT: Reduced to 250% so the whole row fits
-                              backgroundSize: '250%', 
-                              // 3. OPTIONAL NUDGE: We artificially push the camera slightly to the right just in case!
-                              backgroundPosition: `${Math.min((msg.zoom_x) + 15, 100)}% ${msg.zoom_y}%`,
-                              backgroundRepeat: 'no-repeat'
-                            }}
-                          />
-                          <span className="text-[0.65rem] text-[#1a7a4a] font-bold uppercase tracking-wider mt-2 bg-[#d6f5e6] px-2 py-0.5 rounded-md">
-                            Απόσπασμα
-                          </span>
+                    <p className="whitespace-pre-wrap">{msg.text}</p>
+
+                    {/* 🚀 WIDE SCREENSHOT ΜΕ HIGHLIGHT BOX ΑΠΟ ΤΟ GPT-4o */}
+                    {msg.role === 'ai' && msg.image_url && msg.box_left !== undefined && (
+                      <div className="mt-4 w-full flex flex-col items-start">
+                        <span className="text-[0.65rem] text-[#1a7a4a] font-bold uppercase tracking-wider mb-2 bg-[#d6f5e6] px-2 py-0.5 rounded-md">
+                          🔍 Οπτική Τεκμηρίωση
+                        </span>
+                        
+                        <div className="w-full relative h-[160px] rounded-xl border border-[#1a7a4a]/20 overflow-hidden bg-gray-50 shadow-sm flex items-center">
+                           <div 
+                             className="w-full relative transition-transform duration-500"
+                             style={{ transform: `translateY(calc(-${msg.box_top}% + 80px))` }}
+                           >
+                              <img src={msg.image_url} className="w-full h-auto opacity-90" alt="Evidence" />
+                              
+                              <div 
+                                className="absolute border-[3px] border-[#1a7a4a] rounded-md shadow-[0_0_0_9999px_rgba(255,255,255,0.65)]"
+                                style={{
+                                  left: `${msg.box_left}%`,
+                                  top: `${msg.box_top}%`,
+                                  width: `${msg.box_width}%`,
+                                  height: `${msg.box_height}%`,
+                                }}
+                              />
+                           </div>
                         </div>
-                      )}
-                      
-                      <p className="whitespace-pre-wrap flex-1 mt-1">{msg.text}</p>
-                    </div>
-                    
-                    {/* Ολόκληρη η εικόνα εμφανίζεται κανονικά από κάτω */}
-                    {msg.image_url && (
-                      <div className="mt-5 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
-                        <img src={msg.image_url} alt="Source Document" className="w-full h-auto block" />
                       </div>
                     )}
                   </div>
@@ -345,7 +405,7 @@ export default function Home() {
         </div>
 
         {/* --- FIXED BOTTOM INPUT --- */}
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#e2f1e9] via-[#e2f1e9]/90 to-transparent pt-10 pb-6 px-4">
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-[#e2f1e9] via-[#e2f1e9]/90 to-transparent pt-10 pb-6 px-4 z-10">
           <div className="max-w-[700px] mx-auto">
             <form onSubmit={sendMessage} className="relative flex items-center bg-white rounded-full shadow-lg border border-gray-100">
               <input 
