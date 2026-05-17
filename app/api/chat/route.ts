@@ -49,8 +49,13 @@ export async function POST(req: Request) {
           content: `You are a financial AI. Answer the user's question using the provided context. 
           CRITICAL: You MUST reply in pure JSON format exactly like this:
           {
-            "answer": "Your clear, detailed answer here."
-          }` 
+            "answer": "Your clear, detailed answer here.",
+            "zoom_x": 80,
+            "zoom_y": 85
+          }
+          Look at the image and estimate where the answer is physically located.
+          zoom_x is 0-100 (0 is left edge, 100 is right edge).
+          zoom_y is 0-100 (0 is top edge, 100 is bottom edge).` 
         },
         { role: 'user', content: userMessageContent }
       ],

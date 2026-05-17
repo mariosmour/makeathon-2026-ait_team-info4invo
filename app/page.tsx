@@ -23,21 +23,18 @@ const getDateKey = (date: Date) => {
 };
 
 export default function Home() {
-  const [messages, setMessages] = useState<{ role: 'user' | 'ai', text: string, image_url?: string }[]>([]);
+  // Προστέθηκαν τα zoom_x και zoom_y στο state των μηνυμάτων
+  const [messages, setMessages] = useState<{ role: 'user' | 'ai', text: string, image_url?: string, zoom_x?: number, zoom_y?: number }[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
-  // State για την καταγραφή αρχείων ανά ημερομηνία (Demo Data included)
-  const [uploadedFilesByDate, setUploadedFilesByDate] = useState<{ [key: string]: { name: string, url?: string }[] }>({
-    // Μπορείς να ξεσχολιάσεις τα παρακάτω για να έχεις έτοιμα mock δεδομένα στο demo:
-    // "2026-09-14": [{ name: "Invoice_Vodafone_Sept.pdf" }, { name: "DEH_Electricity.png" }],
-    // "2026-09-18": [{ name: "Office_Supplies_Receipt.jpg" }]
-  });
+  // State για την καταγραφή αρχείων ανά ημερομηνία
+  const [uploadedFilesByDate, setUploadedFilesByDate] = useState<{ [key: string]: { name: string, url?: string }[] }>({});
   
   // Calendar State
-  const [currentMonth, setCurrentMonth] = useState(8); // Σεπτέμβριος (0-indexed, 8 = Σεπτέμβριος)
-  const [currentYear, setCurrentYear] = useState(2026); // Έτος από το mockup σου
+  const [currentMonth, setCurrentMonth] = useState(8); // Σεπτέμβριος (0-indexed)
+  const [currentYear, setCurrentYear] = useState(2026);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -62,18 +59,17 @@ export default function Home() {
         text: `⏳ Έναρξη μαζικής επεξεργασίας για ${filesArray.length} αρχεία...` 
       }]);
 
-      // Επεξεργασία όλων των αρχείων παράλληλα
       try {
         await Promise.all(filesArray.map(file => saveToDatabase(file)));
         setMessages((prev) => [...prev, { 
           role: 'ai', 
-          text: `✨ Όλα τα αρχεία (${filesArray.length}) ολοκληρώθηκαν και ταξινομήθηκαν στο ημερολόγιο!` 
+          text: `✨ Όλα τα αρχεία (${filesArray.length}) αναλύθηκαν και ταξινομήθηκαν στο ημερολόγιο!` 
         }]);
       } catch (error) {
         console.error("Upload error:", error);
       } finally {
         setIsLoading(false);
-        if (fileInputRef.current) fileInputRef.current.value = ''; // Reset το input
+        if (fileInputRef.current) fileInputRef.current.value = '';
       }
     }
   };
@@ -98,14 +94,11 @@ export default function Home() {
 
       const data = await response.json();
       if (data.success) {
-        // Ανέβηκε επιτυχώς! Προσθήκη στο ημερολόγιο στην τρέχουσα ημερομηνία
-        const todayKey = getDateKey(new Date()); // Ή hardcoded για το demo αν θες συγκεκριμένη μέρα
-        
+        const todayKey = getDateKey(new Date()); 
         setUploadedFilesByDate(prev => ({
           ...prev,
           [todayKey]: [...(prev[todayKey] || []), { name: file.name, url: data.image_url }]
         }));
-        
         return true;
       } else {
         throw new Error(data.error);
@@ -132,7 +125,15 @@ export default function Home() {
         body: JSON.stringify({ question: userMsg }),
       });
       const data = await response.json();
-      setMessages((prev) => [...prev, { role: 'ai', text: data.answer || data.error || "Προέκυψε κάποιο σφάλμα.", image_url: data.image_url }]);
+      
+      // Αποθηκεύουμε και τις συντεταγμένες του zoom στο state
+      setMessages((prev) => [...prev, { 
+        role: 'ai', 
+        text: data.answer || data.error || "Προέκυψε κάποιο σφάλμα.", 
+        image_url: data.image_url,
+        zoom_x: data.zoom_x,
+        zoom_y: data.zoom_y
+      }]);
     } catch (error) {
       setMessages((prev) => [...prev, { role: 'ai', text: "Σφάλμα σύνδεσης." }]);
     } finally {
@@ -145,7 +146,6 @@ export default function Home() {
       
       {/* --- SIDEBAR --- */}
       <div className={`${isSidebarOpen ? 'w-[300px]' : 'w-0'} transition-all duration-300 ease-in-out bg-white/80 backdrop-blur-md border-r border-[#d0e8da] flex flex-col overflow-hidden shrink-0 shadow-sm`}>
-        {/* Sidebar Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-100/50">
           <div className="text-[1.1rem] font-bold tracking-tight text-gray-800">
             info<span className="bg-[#1a7a4a] text-white px-1 py-0.5 rounded-md mx-0.5">4</span>invo
@@ -156,19 +156,16 @@ export default function Home() {
         </div>
 
         <div className="p-4 flex-1 overflow-y-auto space-y-4">
-          {/* New Chat Button */}
           <button onClick={() => { setMessages([]); }} className="w-full flex items-center justify-center gap-2 py-2.5 bg-white border border-[#d0e8da] rounded-xl hover:border-[#1a7a4a] hover:bg-[#f4fbf7] transition-all text-sm font-medium text-gray-700 shadow-sm">
             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"></path></svg>
             Νέα Συνομιλία
           </button>
 
-          {/* Search Bar */}
           <div className="relative">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
             <input type="text" placeholder="Αναζήτηση συνομιλιών..." className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#1a7a4a]" />
           </div>
 
-          {/* Calendar Widget */}
           <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -203,7 +200,6 @@ export default function Home() {
                     >
                       <span>{date.getDate()}</span>
                       
-                      {/* Πράσινο Badge αν υπάρχουν αρχεία εκείνη τη μέρα */}
                       {fileCount > 0 && !isSelected && (
                         <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-[#22a060] text-white rounded-full text-[0.55rem] font-bold flex items-center justify-center border border-white">
                           {fileCount}
@@ -216,7 +212,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* --- ΔΥΝΑΜΙΚΗ ΛΙΣΤΑ ΑΡΧΕΙΩΝ ΗΜΕΡΑΣ --- */}
           {selectedDate && (
             <div className="bg-white/60 border border-[#d0e8da] rounded-2xl p-3 shadow-sm animate-fadeIn">
               <div className="text-[0.7rem] font-bold text-[#1a7a4a] uppercase tracking-wider mb-2">
@@ -236,17 +231,12 @@ export default function Home() {
               )}
             </div>
           )}
-
-          {Object.keys(uploadedFilesByDate).length === 0 && (
-            <div className="text-xs text-gray-400 text-center pt-4">Δεν βρέθηκαν συνομιλίες/έγγραφα.</div>
-          )}
         </div>
       </div>
 
       {/* --- MAIN CONTENT AREA --- */}
       <div className="flex-1 flex flex-col relative min-w-0">
         
-        {/* Top bar (κουμπί sidebar αν είναι κλειστό) */}
         {!isSidebarOpen && (
           <div className="absolute top-4 left-4 z-10">
             <button onClick={() => setIsSidebarOpen(true)} className="p-2 bg-white/80 backdrop-blur-sm border border-[#d0e8da] rounded-lg shadow-sm text-gray-600 hover:text-[#1a7a4a] transition-colors">
@@ -257,7 +247,6 @@ export default function Home() {
 
         <div className="flex-1 overflow-y-auto px-4 pb-32 pt-12 flex flex-col items-center">
           
-          {/* HERO SECTION (Upload State) */}
           {messages.length === 0 ? (
             <div className="max-w-[700px] w-full flex flex-col items-center justify-center mt-10 lg:mt-24 animate-fadeIn">
               <h1 className="text-[2.8rem] font-bold tracking-tight text-gray-800 mb-4">
@@ -267,7 +256,6 @@ export default function Home() {
                 Ανεβάστε το τιμολόγιο. Όλα τα δεδομένα σας αναλύονται και αποθηκεύονται με ασφάλεια στη βάση δεδομένων.
               </p>
 
-              {/* Drag & Drop Upload Box - Προσθήκη MULTIPLE */}
               <input 
                 type="file" 
                 ref={fileInputRef} 
@@ -291,7 +279,6 @@ export default function Home() {
             </div>
           ) : (
             
-            /* CHAT FEED SECTION */
             <div className="max-w-[750px] w-full space-y-6">
               {messages.map((msg, index) => (
                 <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -309,10 +296,33 @@ export default function Home() {
                       </div>
                     )}
                     
-                    <p className="whitespace-pre-wrap">{msg.text}</p>
+                    {/* ZOOM BOX ΚΑΙ ΚΕΙΜΕΝΟ ΑΠΑΝΤΗΣΗΣ */}
+                    <div className={`${msg.role === 'ai' ? 'flex flex-col sm:flex-row items-start gap-5' : ''}`}>
+                      
+                      {/* Zoom Box Component */}
+                      {msg.role === 'ai' && msg.image_url && msg.zoom_x !== undefined && msg.zoom_y !== undefined && (
+                        <div className="flex flex-col items-center shrink-0">
+                          <div 
+                            className="w-24 h-24 rounded-xl border-2 border-[#1a7a4a]/20 shadow-md bg-white overflow-hidden"
+                            style={{
+                              backgroundImage: `url(${msg.image_url})`,
+                              backgroundSize: '500%', 
+                              backgroundPosition: `${msg.zoom_x}% ${msg.zoom_y}%`,
+                              backgroundRepeat: 'no-repeat'
+                            }}
+                          />
+                          <span className="text-[0.65rem] text-[#1a7a4a] font-bold uppercase tracking-wider mt-2 bg-[#d6f5e6] px-2 py-0.5 rounded-md">
+                            Απόσπασμα
+                          </span>
+                        </div>
+                      )}
+                      
+                      <p className="whitespace-pre-wrap flex-1 mt-1">{msg.text}</p>
+                    </div>
                     
+                    {/* Ολόκληρη η εικόνα εμφανίζεται κανονικά από κάτω */}
                     {msg.image_url && (
-                      <div className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                      <div className="mt-5 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
                         <img src={msg.image_url} alt="Source Document" className="w-full h-auto block" />
                       </div>
                     )}
