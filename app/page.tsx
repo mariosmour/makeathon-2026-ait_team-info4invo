@@ -15,17 +15,27 @@ const HighlightedImage = ({ imageUrl, highlightText }: { imageUrl: string, highl
     const scanImage = async () => {
       setIsScanning(true);
       try {
-        // Fix 1: We tell TypeScript that 'data' can be 'any' type
         const { data }: { data: any } = await Tesseract.recognize(imageUrl, 'ell+eng');
         
-        // Fix 2: We explicitly tell TypeScript that 'w' is 'any' type
-        const foundWord = data.words.find((w: any) => w.text.includes(highlightText) || highlightText.includes(w.text));
+        // FUZZY MATCHING: Remove spaces, commas, dots, and symbols to compare pure numbers/letters
+        const clean = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/gi, '');
+        const targetClean = clean(highlightText);
+
+        const foundWord = data.words.find((w: any) => {
+          const wordClean = clean(w.text);
+          // Match if they share the same core letters/numbers
+          return wordClean.length > 1 && (wordClean.includes(targetClean) || targetClean.includes(wordClean));
+        });
         
         if (foundWord) {
           setBox(foundWord.bbox);
+        } else {
+          // If it fails, log exactly what Tesseract saw to the console so we can debug!
+          console.log(`❌ Couldn't find exact match for: "${highlightText}"`);
+          console.log("Here is what Tesseract actually read:", data.words.map((w:any) => w.text).join(' '));
         }
       } catch (error) {
-        console.error("OCR Error:", error);
+        console.error("🚨 Tesseract Error:", error);
       }
       setIsScanning(false);
     };
