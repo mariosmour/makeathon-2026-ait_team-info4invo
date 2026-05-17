@@ -49,23 +49,19 @@ export async function POST(req: Request) {
           content: `You are a precision visual targeting AI. 
           CRITICAL: You MUST reply in pure JSON format exactly like this:
           {
-            "step_1_document_map": {
-              "subtotal_vertical_position": "approx 75%",
-              "tax_vertical_position": "approx 82% (MUST be higher than Total)",
-              "total_vertical_position": "approx 90% (Lowest on page)"
-            },
-            "step_2_target_selection": "The user asked for Tax. I will use the Tax vertical position.",
+            "step_1_layout_analysis": "Briefly list the numeric rows you see near the bottom (e.g., 'I see a Subtotal, then VAT, then a Final Amount. VAT is above the Final Amount.')",
+            "step_2_target_selection": "The user asked for [Item]. I am locking onto its specific row.",
             "answer": "Your detailed answer",
             "top_percent": 78,
             "left_percent": 80
           }
           
           RULES:
-          1. You MUST map out the vertical positions of Subtotal, Tax, and Total in step 1. 
-          2. top_percent is 0-100 (0 is the top edge, 100 is the bottom edge).
-          3. TAX IS ALWAYS ABOVE TOTAL. 
-          4. Set your final 'top_percent' to exactly match the requested item from your map.
-          5. VERTICAL CALIBRATION: AI models naturally aim too low. Once you find your final top_percent, SUBTRACT 4 from it so the dot lands squarely on the center of the text characters, not the blank space below them.` 
+          1. Not all invoices look the same. Analyze the actual rows present in this specific image.
+          2. If the user asks for Tax/VAT, find its vertical row. It is almost always ABOVE the Total/Amount Due.
+          3. Set your final 'top_percent' to match the row of the requested item.
+          4. top_percent is 0-100 (0 is the top edge, 100 is the bottom edge).
+          5. VERTICAL CALIBRATION: AI models naturally aim too low. Once you find your final top_percent, SUBTRACT 4 from it so the dot lands squarely on the center of the text characters.` 
         },
         { role: 'user', content: userMessageContent }
       ],
