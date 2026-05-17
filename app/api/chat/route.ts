@@ -19,7 +19,7 @@ export async function POST(req: Request) {
 
     const { data: documents, error } = await supabase.rpc('match_documents', {
       query_embedding: embeddingResponse.data[0].embedding,
-      match_threshold: 0.10, // Kept at 10% so it always finds it
+      match_threshold: 0.10,
       match_count: 3
     });
 
@@ -28,32 +28,42 @@ export async function POST(req: Request) {
       return NextResponse.json({ answer: "Δεν βρέθηκαν σχετικά έγγραφα." });
     }
 
-    // We pass the URL into the context so the AI knows it!
-    const context = documents.map((doc: any) => `[Source: ${doc.metadata.source}, URL: ${doc.metadata.image_url}]\n${doc.content}`).join('\n\n---\n\n');
+    const context = documents.map((doc: any) => `[Source: ${doc.metadata.source}]\n${doc.content}`).join('\n\n---\n\n');
+    const imageUrl = documents[0].metadata.image_url;
 
-    // Force JSON output
+    // We dynamically build the user message. If we have an image, we show it to GPT-4o!
+    const userMessageContent: any[] = [
+      { type: 'text', text: `Database Context:\n${context}\n\nQuestion: ${question}` }
+    ];
+    
+    if (imageUrl) {
+      userMessageContent.push({ type: 'image_url', image_url: { url: imageUrl } });
+    }
+
     const chatResponse = await openai.chat.completions.create({
       model: process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4o',
-      response_format: { type: 'json_object' }, // THIS IS THE SECRET SAUCE
+      response_format: { type: 'json_object' },
       messages: [
         { 
           role: 'system', 
           content: `You are a financial AI. Answer using the context. 
           CRITICAL: You MUST reply in pure JSON format exactly like this:
           {
-            "answer": "Your detailed answer citing the source file",
-            "image_url": "The URL of the source document",
-            "highlight_text": "The EXACT short string (like '1450.00') from the document to highlight."
+            "answer": "Your detailed answer",
+            "top_percent": 25,
+            "left_percent": 80
           }
-          Context:\n${context}` 
+          Look at the provided image. Estimate the physical location of the answer on the page. 
+          top_percent is a number 0-100 (0 is top edge). left_percent is a number 0-100 (0 is left edge).` 
         },
-        { role: 'user', content: question }
+        { role: 'user', content: userMessageContent }
       ],
       temperature: 0.1,
     });
 
-    // Parse the JSON string back into a real object
     const aiResponse = JSON.parse(chatResponse.choices[0].message.content || "{}");
+    // Securely attach the URL from our database, not the AI
+    aiResponse.image_url = imageUrl; 
     
     return NextResponse.json(aiResponse);
   } catch (error: any) {
