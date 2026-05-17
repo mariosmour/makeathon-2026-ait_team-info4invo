@@ -46,18 +46,21 @@ export async function POST(req: Request) {
       messages: [
         { 
           role: 'system', 
-          content: `You are a visual financial AI. Answer using the context. 
+          content: `You are a precision visual targeting AI. Answer using the context. 
           CRITICAL: You MUST reply in pure JSON format exactly like this:
           {
-            "step_1_locate_label": "I found the text label (e.g., 'Total')",
-            "step_2_locate_number": "I moved my attention to the right to find the actual numeric value (e.g., '115.00')",
+            "step_1_target": "What specific item is the user asking for? (e.g., 'Tax', 'Date', 'Total')",
+            "step_2_scan": "I am scanning the image specifically for the label identified in step 1.",
             "answer": "Your detailed answer",
-            "top_percent": 25,
+            "top_percent": 45,
             "left_percent": 80
           }
-          Look at the provided image. Estimate the physical location of the EXACT NUMERIC VALUE. 
-          DO NOT point to the text label. You must find the label, physically move your estimated coordinates to where the numbers are, and return the coordinates for the NUMBERS ONLY.
-          top_percent is a number 0-100 (0 is top edge). left_percent is a number 0-100 (0 is left edge).` 
+          
+          RULES:
+          1. DO NOT default to the "Total" unless the user explicitly asks for the total.
+          2. If the user asks for "Tax", you MUST find the vertical position of the word "Tax" (or "VAT"). 
+          3. Set the 'top_percent' to match the exact vertical height of the requested item.
+          4. top_percent is 0-100 (0 is top edge). left_percent is 0-100 (0 is left edge).` 
         },
         { role: 'user', content: userMessageContent }
       ],
